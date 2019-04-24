@@ -1,0 +1,42 @@
+#:kivy 1.0.9
+    
+<OkButton>:
+    text: root.btn_approve_tx
+
+<CancelButton>:
+    text: root.btn_reject_tx
+
+<Container>    
+    display: display
+    rows: 2
+    cols: 1
+    Label:
+        id: display
+        font_size: dp(15)
+        text: 'Waiting tx...'
+    BoxLayout:
+        orientation: "horizontal"
+        OkButton:
+            id: ok_btn
+            on_release: root.approve_tx(self)
+            disabled:root.btn_disabled
+        CancelButton:
+            id: cancel_btn
+            on_release: root.approve_tx(self)
+            disabled:root.btn_disabled
+   
+<RootWidget>:
+    orientation: 'vertical'
+    Label:
+        font_size: 50  
+        center_x: root.width / 2
+        top: root.top - 50
+        text: root.label_txt
+        
+    Button:
+        text: root.btn_cancel_txt
+        disabled:root.btn_cancel_disabled
+        
+    Button:
+        text: root.btn_ok_txt
+        disabled:root.btn_cancel_disabled

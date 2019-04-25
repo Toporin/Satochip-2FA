@@ -25,18 +25,49 @@
             on_release: root.approve_tx(self)
             disabled:root.btn_disabled
    
-<RootWidget>:
-    orientation: 'vertical'
-    Label:
-        font_size: 50  
-        center_x: root.width / 2
-        top: root.top - 50
-        text: root.label_txt
-        
-    Button:
-        text: root.btn_cancel_txt
-        disabled:root.btn_cancel_disabled
-        
-    Button:
-        text: root.btn_ok_txt
-        disabled:root.btn_cancel_disabled
+<Tabs>:
+    size_hint: 1, 1
+    pos_hint: {'center_x': .5, 'center_y': .5}
+    do_default_tab: False
+
+    TabbedPanelItem:
+        text: 'Tx'
+        #Container:
+        #   id: the_container
+        #display: root.display
+        GridLayout:
+            rows: 2
+            cols: 1
+            Label:
+                id: display_tx
+                font_size: dp(15)
+                text: root.display
+            BoxLayout:
+                orientation: "horizontal"
+                OkButton:
+                    id: ok_btn
+                    on_release: root.approve_tx(self)
+                    disabled:root.btn_disabled
+                CancelButton:
+                    id: cancel_btn
+                    on_release: root.approve_tx(self)
+                    disabled:root.btn_disabled
+
+    TabbedPanelItem:
+        text: 'Scan QR'
+        Label:
+            text: 'Scan a new QR code'
+        Button:
+            id: qr
+            on_release: Clock.schedule_once(lambda dt: app.scan_qr(on_complete=app.on_qr))
+    
+    TabbedPanelItem:
+        text: 'Manage 2FA'
+        Label:
+            text: 'Add or remove 2FA'
+    
+    TabbedPanelItem:
+        text: 'Logs'
+        Label:
+            text: 'contains the history of tx'
+            

@@ -1,0 +1,11 @@
+.buildozer/
+certifi/
+chardet/
+cryptos/
+idna/
+requests/
+urllib3/
+*.dist-info/
+
+#contains the android package
+#bin/

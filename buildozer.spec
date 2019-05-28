@@ -19,16 +19,19 @@ source.dir = .
 #source.include_patterns = assets/*,images/*.png
 
 # (list) Source files to exclude (let empty to not exclude anything)
-#source.exclude_exts = spec
+source.exclude_exts = data.json, logs.txt, requirements.txt, make_packages, .gitignore
 
 # (list) List of directory to exclude (let empty to not exclude anything)
-#source.exclude_dirs = tests, bin
+source.exclude_dirs = tests, bin, .git, __pycache__
 
 # (list) List of exclusions using pattern matching
 #source.exclude_patterns = license,images/*/*.jpg
+source.exclude_patterns = *.dist-info
 
 # (str) Application versioning (method 1)
-version = 0.1
+# v0.1: initial version
+# v0.2: support for segwit, multisig, multiple coin, multiple 2FA, logs, qrcodes, save data, data encryption
+version = 0.2
 
 # (str) Application versioning (method 2)
 # version.regex = __version__ = ['"](.*)['"]
@@ -37,7 +40,7 @@ version = 0.1
 # (list) Application requirements
 # comma separated e.g. requirements = sqlite3,kivy
 #requirements = python3, kivy, android, pyjnius
-requirements = python3, kivy, android, plyer
+requirements = python3, kivy, android, plyer, openssl
 
 # (str) Custom source folders for requirements
 # Sets custom source for any requirements with recipes
@@ -48,9 +51,11 @@ requirements = python3, kivy, android, plyer
 
 # (str) Presplash of the application
 #presplash.filename = %(source.dir)s/data/presplash.png
+presplash.filename = %(source.dir)s/Satochip-logo.png
 
 # (str) Icon of the application
 #icon.filename = %(source.dir)s/data/icon.png
+icon.filename = %(source.dir)s/Satochip-icon.png
 
 # (str) Supported orientation (one of landscape, sensorLandscape, portrait or all)
 orientation = portrait

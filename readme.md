@@ -1,6 +1,6 @@
 # Satochip 2-Factor-Authentication
 
-This is an app to be installed on a second device, to approve transaction before signing them with a satochip.
+This is an app to be installed on a second device, to approve transactions before signing them with a Satochip.
 The app regularly poll the Electrum server for new transaction proposals. These transaction candidates are then parsed and displayed. If approved, a cryptographic code is sent back to securely and uniquely approve the transaction so that the satochip can sign it.
 
 ## Requirements

@@ -1,3 +1,21 @@
+#
+# Satochip 2-Factor-Authentication app for the Satochip Bitcoin Hardware Wallet
+# (c) 2019 by Toporin - 16DMCk4WUaHofchAhpMaQS4UPm4urcy2dN
+# Sources available on https://github.com/Toporin	
+# 				 
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 from kivy.app import App
 from kivy.uix.widget import Widget
 from kivy.uix.button import Button
@@ -6,33 +24,54 @@ from kivy.uix.tabbedpanel import TabbedPanel
 from kivy.properties import StringProperty, BooleanProperty, ObjectProperty
 from kivy.clock import Clock
 from kivy.utils import platform
+from kivy.storage.jsonstore import JsonStore
+from kivy.logger import Logger
+from kivy.logger import LoggerHistory
 
+from datetime import datetime
+import logging
+from os import urandom
 from hashlib import sha1, sha256
+import pyaes
 import hmac
+import certifi
 import urllib3
 import requests
-from cryptos import deserialize
+import ssl
+import json
+import base64
+from cryptos import transaction, main #deserialize
 from cryptos.coins import Bitcoin
 from xmlrpc.client import ServerProxy
 
-server = ServerProxy('https://cosigner.electrum.org/', allow_none=True)
-DEBUG=True
-DEBUG_SECRET_2FA=b'\0'*20 
+from TxParser import TxParser
+#import segwit_addr
 
-IS_TESTNET=True
+ca_path = certifi.where()
+#print("CA Path: "+ca_path)
+context = ssl.SSLContext()
+context.verify_mode =  ssl.CERT_REQUIRED
+context.check_hostname = True
+context.load_verify_locations(ca_path)
+server = ServerProxy('https://cosigner.electrum.org/', allow_none=True, context=context)
+
+DEBUG=True
+DEBUG_SECRET_2FA= "00"*20  #b'\0'*20
 APPROVE_TX="Approve tx!"
 REJECT_TX="Reject tx!"
 LOG_SEP="-"*60 + "\n"
+BLOCKSIZE= 16
+
+if DEBUG: 
+    Logger.setLevel(logging.DEBUG)
+else: 
+    Logger.setLevel(logging.INFO)
 
 class Listener():
     def __init__(self, parent):
         self.parent = parent
         self.received = set()
-        self.keyhashes = []
         self.postbox = []
-
-    def set_keyhashes(self, keyhashes):
-        self.keyhashes = keyhashes
 
     def clear(self, keyhash):
         server.delete(keyhash)
@@ -40,30 +79,26 @@ class Listener():
 
 class Factors():
     def __init__(self):
-        self.factors={}
+        self.datastore = JsonStore('data.json')
         
-    def save_to_mem(self):
-        pass
-        
-    def load_from_mem(self):
-        pass
-        
-    def add_new_factor(self,secret_2FA, label):
-        d={}
-        d['label_2FA']=label
-        d['secret_2FA']= secret_2FA #bytearray
-        mac = hmac.new(secret_2FA, "id_2FA".encode('utf-8'), sha256)
-        d['id_2FA']=id_2FA= mac.hexdigest()
-        mac = hmac.new(secret_2FA, "cryptkey_2FA".encode('utf-8'), sha256)
-        d['cryptkey_2FA']= mac.hexdigest()
-        d['idreply_2FA']=sha256(id_2FA.encode('utf-8')).hexdigest()
-        self.factors['id_2FA']=d
-        self.save_to_mem()
+    def add_new_factor(self,secret_2FA, label_2FA):
+        mac = hmac.new(bytes.fromhex(secret_2FA), "id_2FA".encode('utf-8'), sha1)
+        id_2FA= sha256(mac.digest()).hexdigest()
+        mac = hmac.new(bytes.fromhex(secret_2FA), "key_2FA".encode('utf-8'), sha1)
+        key_2FA= mac.hexdigest()[0:32] # keep first 16 bytes out of 20
+        idreply_2FA=sha256(id_2FA.encode('utf-8')).hexdigest()
+        self.datastore.put(id_2FA, secret_2FA=secret_2FA, key_2FA= key_2FA, label_2FA=label_2FA, idreply_2FA=idreply_2FA)
+        Logger.info("Satochip: \nAdded new factor on "+ str(datetime.now())+"\n"
+                            +"label: "+ label_2FA+"\n"
+                            +"id_2FA: "+ id_2FA+"\n"
+                            +"idreply_2FA: "+ idreply_2FA)
+        #Logger.debug("Satochip: secret_2FA"+ secret_2FA)
+        #Logger.debug("Satochip: key_2FA: "+ key_2FA)
         
     def remove_factor(self, id):
-        self.factors.pop(id)
-        self.save_to_mem()
-
+        if self.datastore.exists(id):
+            self.datastore.delete(id)
+    
 class OkButton(Button):
     btn_approve_tx= StringProperty(APPROVE_TX) 
     
@@ -79,17 +114,28 @@ class Satochip(TabbedPanel):
     label_qr_data= StringProperty("Click on 'scan' button to scan a new QR code...")
     label_logs= StringProperty('Contains the tx history...\n'+LOG_SEP)
     label_2FA_label= StringProperty('Enter 2FA description here')
+    label_2FA_stored= StringProperty('')
     
     def __init__(self, **kwargs):
         super(Satochip, self).__init__(**kwargs)
+        self.listener = Listener(self)
         self.myfactors= Factors()
-        self.myfactors.load_from_mem()
         if DEBUG:
             self.myfactors.add_new_factor(DEBUG_SECRET_2FA, "Debug-2FA")
-            
-        self.listener = Listener(self)
-        self.btc= Bitcoin(IS_TESTNET)
+        self.load_list_2FA()
         
+        #load log history
+        for record in  reversed(LoggerHistory.history):
+            print(str(record))
+            if record.levelno>=20: #INFO
+                msg= record.getMessage()
+                if msg.startswith("[Satochip"):
+                    self.label_logs+=msg.replace("[Satochip    ] ","",1) +"\n"+LOG_SEP                     
+        
+    def load_list_2FA(self):
+        self.label_2FA_stored="List of stored 2FA:\n\n"
+        for keyhash in self.myfactors.datastore.keys():
+            self.label_2FA_stored+="id: "+keyhash[0:32]+"...\nlabel: "+self.myfactors.datastore.get(keyhash)['label_2FA']+"\n"+LOG_SEP
         
     def approve_tx(self, btn): 
         letter= self.listener.postbox.pop()
@@ -100,103 +146,271 @@ class Satochip(TabbedPanel):
         # compute tx_hash
         pre_hash= sha256(pre_tx).digest()
         pre_hash= sha256(pre_hash).digest()
-        pre_hash= pre_hash+ (b'\0'*32) # 32bytes zero-padding
+        pre_hash= pre_hash+ (b'\0'*32) # 32bytes zero-padding ()
         pre_hash_hex= pre_hash.hex()
-        print("SatochipDebug:"+"tx_hash: ", pre_hash_hex)
         
         #compute  response to challenge and send back...
+        reply=pre_hash_hex[0:64]+":"
         if (btn.text == APPROVE_TX):
-            secret_2FA=self.myfactors.factors[keyhash]['secret_2FA']
+            secret_2FA=bytes.fromhex(self.myfactors.datastore.get(keyhash)['secret_2FA'])
             mac = hmac.new(secret_2FA, pre_hash, sha1)
-            reply= mac.hexdigest()
+            reply+= mac.hexdigest()
             self.display = "Tx approved!"
+            self.label_logs+= "Tx approved" +"\n"+LOG_SEP
+            Logger.info("Satochip: APPROVED tx with hash: "+pre_hash_hex[0:64]+" on "+str(datetime.now()))
         else: 
-            reply= "00"*20
+            reply+= "00"*20
             self.display = "Tx rejected!"
-        print("SatochipDebug:"+"response sent: ", reply)
-        replyhash2= sha256(keyhash.encode('utf-8')).hexdigest()
-        replyhash= self.myfactors.factors[keyhash]['idreply_2FA']
-        if (replyhash!=replyhash2):
-            print("Error! replyhash incorrect!")
-            
-        #todo: encrypt reply
-        print("SatochipDebug:"+"Sent response to: ", replyhash)
-        server.put(replyhash, reply)
+            self.label_logs+= "Tx rejected" +"\n"+LOG_SEP
+            Logger.info("Satochip: REJECTED tx with hash: "+pre_hash_hex[0:64]+" on "+str(datetime.now()))
+        Logger.debug("Satochip: Challenge-response: "+ reply)
+        replyhash= self.myfactors.datastore.get(keyhash)['idreply_2FA']
+          
+        # pad & encrypt reply
+        key_2FA= bytes.fromhex(self.myfactors.datastore.get(keyhash)['key_2FA'])
+        iv= urandom(16)
+        Logger.debug("Satochip: IV hex: "+ iv.hex())
+        plaintext= reply.encode("utf-8")
+        encrypter = pyaes.Encrypter(pyaes.AESModeOfOperationCBC(key_2FA, iv))
+        ciphertext = encrypter.feed(plaintext)
+        ciphertext += encrypter.feed()
+        ciphertext = iv+ciphertext
+        reply_encrypt= base64.b64encode(ciphertext).decode('ascii')
+        Logger.debug("Satochip: Reply_encrypt: "+reply_encrypt)
+        
+        # send reply to server
+        Logger.debug("Satochip: Sent response to: "+replyhash)
+        server.put(replyhash, reply_encrypt)
         self.listener.clear(keyhash)
         self.btn_disabled= True
-        self.label_logs+= "Tx approved" +"\n"+LOG_SEP
+        
     
     def update(self, dt):
-        print("SatochipDebug:"+"Update...")
-        for keyhash, dic in self.myfactors.factors.items():
-            if keyhash in self.listener.received:
-                continue
+        # only one factor at a time
+        if len(self.listener.received)!=0:
+            return
+         
+        # poll server for each id_2FA
+        print("Satochip update...")
+        for keyhash in self.myfactors.datastore.keys():
+            # if keyhash in self.listener.received:
+                # continue
             try:
                 message = server.get(keyhash)
-                #message="0200000001cc81d38a9e782801bcba30ab5a26d92a8ec1018eeea144fbc09c694e53794de6010000001976a9143f3c6ae42382a8a8e5c9766f8384db5049792b8b88acfdffffff02a0860100000000001976a914752c77c03a0f86057458e978494ea2a0245cfb3788ac073a4900000000001976a914e105877f9e0a3acecf842c9cf905a09eef26a76588ac55bb160001000000" #debug
-                self.listener.postbox.append([keyhash,message])
-                self.listener.received.add(keyhash)
             except Exception as e:
-                print("SatochipDebug:"+"cannot contact server")
+                self.display = "Error: cannot contact server:"+str(e)
+                Logger.warning("Satochip: cannot contact server: "+str(e))
                 break
             if message:
-                label= self.myfactors.factors[keyhash]['label_2FA']
-                if DEBUG:
-                    print("Satochip: received challenge for ", keyhash)
-                    print("Satochip: corresponding label", label)
-                    print("Satochip: challenge received: ", message)
-                #todo: decrypt message
+                self.listener.received.add(keyhash)
+                label= self.myfactors.datastore.get(keyhash)['label_2FA']
+                Logger.debug("Satochip: Received challenge for: "+ keyhash)
+                Logger.debug("Satochip: Corresponding label: "+ label)
+                Logger.debug("Satochip: Challenge received: "+ message)
+                
+                # decrypt message & remove padding
+                key_2FA= bytes.fromhex(self.myfactors.datastore.get(keyhash)['key_2FA'])
+                message= base64.b64decode(message)
+                iv= message[0:16]
+                ciphertext= message[16:]
+                
+                decrypter = pyaes.Decrypter(pyaes.AESModeOfOperationCBC(key_2FA, iv))
+                decrypted = decrypter.feed(ciphertext)
+                decrypted += decrypter.feed()
+                Logger.debug("Satochip: Challenge decrypted: "+decrypted.decode('ascii'))
+                
+                message= json.loads(decrypted) 
+                is_segwit= message['sw']
+                txt="2FA: "+label+"\n" 
+                    
+                # coin type: 
+                coin_type= message['ct']
+                if coin_type==0:
+                    coin= Bitcoin(False)
+                elif coin_type==1:
+                    coin= Bitcoin(True)
+                else:
+                    Logger.warning("Satochip: Coin not (yet) supported: "+str(coin_type))
+                    coin=BaseCoin()
+                txt+="Coin: "+coin.display_name+"\n" 
                 
                 # parse tx into a clear message for approval
-                pre_tx_hex=message
+                pre_tx_hex=message['tx']
                 pre_tx= bytes.fromhex(pre_tx_hex)
-                pre_tx_dic= deserialize(pre_tx_hex)
-                if DEBUG: 
-                    print("Satochip pre_tx_dic: ", str(pre_tx_dic))
-                
-                # show 
-                txt="2FA: "+label+"\n" 
-                amount_in=0
-                ins= pre_tx_dic['ins']
-                nb_ins= len(ins)
-                txt+="nb_inputs: "+str(nb_ins) + "\n"
-                txt+="inputs:\n"
-                for i in ins:
-                    script= i['script']
-                    #txt+="    "+"script: "+script+"\n"
-                    #scripts= cryptos.deserialize_script(script)
-                    addr= self.btc.scripttoaddr(script)
-                    unspent=  self.btc.unspent(addr)
-                    val= 0
-                    for d in unspent:
-                        val+=d['value']
-                    txt+="    "+"address: "+addr+" unspent: "+str(val)+"\n"
-                    amount_in+=val
-                txt+="    "+"total: "+str(amount_in)+"\n"
+                pre_hash_hex=  sha256(sha256(pre_tx).digest()).hexdigest()
+                if is_segwit:
                     
-                fee=0
-                amount_out=0
-                outs= pre_tx_dic['outs']
-                nb_outs= len(outs)
-                txt+="nb_outputs: "+str(nb_outs) + "\n"
-                txt+="outputs:\n"
-                for o in outs:
-                    script= o['script']
-                    val= o['value']
-                    addr= self.btc.scripttoaddr(script)
-                    txt+="    "+"address: "+addr+" spent: "+str(val)+"\n"
-                    #txt+="    "+"script: "+script+"\n"
-                    #txt+="    "+"value: "+str(val)+"\n"
-                    amount_out+=val
-                txt+="    "+"total: "+str(amount_out)+"\n"
-                fee= amount_in-amount_out
-                txt+="    "+"fees:  "+str(fee)+"\n"
+                    #parse segwit tx
+                    txin_type=message['ty']
+                    txparser= TxParser(pre_tx)
+                    while not txparser.is_parsed():
+                        chunk= txparser.parse_segwit_transaction()
+                        
+                    Logger.debug("Satochip: hashPrevouts: "+txparser.hashPrevouts.hex())
+                    Logger.debug("Satochip: hashSequence: "+txparser.hashSequence.hex())
+                    Logger.debug("Satochip: txOutHash: "+txparser.txOutHash[::-1].hex())
+                    Logger.debug("Satochip: txOutIndex: "+str(txparser.txOutIndexLong))
+                    Logger.debug("Satochip: inputScript: "+txparser.inputScript.hex())
+                    Logger.debug("Satochip: inputAmount: "+str(txparser.inputAmountLong))
+                    Logger.debug("Satochip: nSequence: "+txparser.nSequence.hex())
+                    Logger.debug("Satochip: hashOutputs: "+txparser.hashOutputs.hex())
+                    Logger.debug("Satochip: nLocktime: "+txparser.nLocktime.hex())
+                    Logger.debug("Satochip: nHashType: "+txparser.nHashType.hex())
+                    
+                    script= txparser.inputScript.hex()
+                    if txin_type== 'p2wpkh':
+                        hash= transaction.output_script_to_h160(script)
+                        hash= bytes.fromhex(hash)
+                        addr= coin.hash_to_segwit_addr(hash)
+                        Logger.debug("Satochip: p2wpkh address: "+addr)
+                    elif txin_type== 'p2wsh': #multisig-segwit
+                        addr= coin.script_to_p2wsh(script)
+                        Logger.debug("Satochip: p2wsh address: "+addr)
+                    elif txin_type== 'p2wsh-p2sh':
+                        h= transaction.output_script_to_h160(script)
+                        addr= coin.p2sh_scriptaddr("0020"+h)
+                        Logger.debug("Satochip: p2wsh-p2sh address: "+addr)
+                    elif txin_type== 'p2wpkh-p2sh':
+                        # for p2wpkh-p2sh addres is derived from script hash, see https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki#P2WPKH_nested_in_BIP16_P2SH
+                        h= transaction.output_script_to_h160(script)
+                        addr= coin.p2sh_scriptaddr("0014"+h)
+                        Logger.debug("Satochip: p2wpkh-p2sh address: "+addr)
+                    else:
+                        addr= "unsupported script:"+script+"\n"
+                    
+                    txt+="input:\n"
+                    txt+= "    "+"address: "+addr+" spent: "+str(txparser.inputAmountLong)+"\n"
+                                                        
+                   #parse outputs
+                    outputs_hex= message['txo']
+                    outputs= bytes.fromhex(outputs_hex)
+                    hashOutputs=sha256(sha256(outputs[1:]).digest()).hexdigest()
+                    outparser= TxParser(outputs)
+                    while not outparser.is_parsed():
+                        chunk= outparser.parse_outputs()
+                    
+                    nb_outs= outparser.txCurrentOutput
+                    Logger.debug("Satochip: nbrOutputs: "+str(nb_outs))
+                    txt+="nb_outputs: "+str(nb_outs) + "\n"
+                    txt+="outputs:\n"
+                    amnt_out=0
+                    for i in range(nb_outs):
+                        amnt= outparser.outAmounts[i]
+                        amnt_out+=amnt
+                        script= outparser.outScripts[i].hex()
+                        if script.startswith( '76a914' ):#p2pkh
+                            addr= coin.scripttoaddr(script)
+                        elif script.startswith( 'a914' ): #p2sh
+                            addr= coin.scripttoaddr(script)
+                        elif script.startswith( '0014' ):#p2wpkh
+                            hash= bytes.fromhex(script[4:])
+                            addr= coin.hash_to_segwit_addr(hash)
+                        elif script.startswith( '0020' ): #p2wsh
+                            hash= bytes.fromhex(script[4:])
+                            addr= coin.hash_to_segwit_addr(hash)
+                        else: 
+                            addr= "unsupported script:"+script+"\n"
+                        Logger.debug("Satochip: outScripts: "+script)
+                        Logger.debug("Satochip: amount: "+str(amnt))
+                        Logger.debug("Satochip: address: "+addr)
+                        txt+= "    "+"address: "+addr+" spent: "+str(amnt)+"\n"
+                    txt+= "    "+"total: "+str(amnt_out)+"\n"
+                    
+                    if hashOutputs!=txparser.hashOutputs.hex():
+                        txt+= "Warning! inconsistent output hashes!\n"
                 
-                if DEBUG: 
-                    print("Satochip tx:"+txt)
+                # non-segwit tx
+                else:
+                    pre_tx_dic= transaction.deserialize(pre_tx)
+                    Logger.debug("Satochip: pre_tx_dic: "+str(pre_tx_dic))
+                    
+                    # inputs 
+                    amount_in=0
+                    ins= pre_tx_dic['ins']
+                    nb_ins= len(ins)
+                    txt+="nb_inputs: "+str(nb_ins) + "\n"
+                    txt+="inputs:\n"
+                    for i in ins:
+                        script= i['script'].hex()
+                        Logger.debug("Satochip: input script: "+script)
+                        
+                        # recover script and corresponding addresse
+                        if script=="":# all input scripts are removed for signing except 1
+                            outpoint= i['outpoint']
+                            hash= outpoint['hash'].hex()
+                            index= outpoint['index']
+                            #Logger.debug('Satochip: hash: hash:index: ' +hash+":"+str(index))
+                            tx= coin.fetchtx(hash)
+                            #Logger.debug('Satochip: tx: '+str(tx))
+                            outs= tx['out']
+                            out= outs[index]
+                            val= out['value']
+                            script= out['script']
+                            addr= coin.scripttoaddr(script)
+                            addr= "(empty for signing: "+ addr[0:16] +"...)" 
+                        if script.endswith("ae"):#m-of-n pay-to-multisig
+                            m= int(script[0:2], 16)-80
+                            n= int(script[-4:-2], 16)-80
+                            txt+="    "+"multisig "+str(m)+"-of-"+str(n)+"\n"
+                            addr= coin.p2sh_scriptaddr(script)
+                            Logger.debug("Satochip: address multisig: "+addr)
+                        else: #p2pkh, p2sh
+                            addr= coin.scripttoaddr(script)
+                            Logger.debug("Satochip: address: "+addr)
+                        
+                        # get value from blockchain server
+                        unspent= coin.unspent_web(addr)
+                        val=0
+                        for d in unspent:
+                            val+=d['value']
+                        # get value from electrum server (seem slow...)
+                        # try:
+                            # hs= sha256(bytes.fromhex(script)).digest()
+                            # hs= hs[::-1]
+                            # balances=  coin.balance(True, hs.hex())
+                            # val= sum(balances)                                  
+                        # except Exception as e:
+                            # Logger.warning("Exception during coin.balance request: "+str(e))
+                        
+                        txt+="    "+"address: "+addr+" balance: "+str(val)+"\n"
+                        amount_in+=val
+                    txt+="    "+"total: "+str(amount_in)+"\n"
+                    
+                    # outputs    
+                    fee=0
+                    amount_out=0
+                    outs= pre_tx_dic['outs']
+                    nb_outs= len(outs)
+                    txt+="nb_outputs: "+str(nb_outs) + "\n"
+                    txt+="outputs:\n"
+                    for o in outs:
+                        val= o['value']
+                        script= o['script'].hex()
+                        Logger.debug("Satochip: output script: "+script)
+                        if script.startswith( '76a914' ):# p2pkh
+                            addr= coin.scripttoaddr(script)
+                        elif script.startswith( 'a914' ): # p2sh
+                            addr= coin.scripttoaddr(script)
+                        elif script.startswith( '0014' ):#p2wpkh
+                            hash= bytes.fromhex(script[4:])
+                            addr= coin.hash_to_segwit_addr(hash)
+                        elif script.startswith( '0020' ):#p2wsh
+                            hash= bytes.fromhex(script[4:])
+                            addr= coin.hash_to_segwit_addr(hash)
+                        else: 
+                            addr= "unsupported script:"+script+"\n"
+                        txt+="    "+"address: "+addr+" spent: "+str(val)+"\n"
+                        amount_out+=val
+                    txt+="    "+"total: "+str(amount_out)+"\n"
+                    fee= amount_in-amount_out
+                    txt+="    "+"fees:  "+str(fee)+"\n"
+                    
+                self.listener.postbox.append([keyhash,pre_tx_hex])
                 self.display = txt
-                self.btn_disabled= False
                 self.label_logs+= txt +"\n"
+                Logger.info("Satochip: \nNew tx with hash: "+pre_hash_hex+"\nReceived on "+str(datetime.now())+":\n"+txt)
+                
+                self.btn_disabled= False
                 break
     
     def scan_qr(self, on_complete):
@@ -227,21 +441,20 @@ class Satochip(TabbedPanel):
         self.btn_approve_qr_disabled=False
         
     def on_approve_qr(self):
-        if DEBUG:
-            print("secret:"+self.label_qr_data+" label:"+ self.label_2FA_label) 
-        
         try: 
-            secret_2FA= bytearray.fromhex(self.label_qr_data)
-            self.myfactors.add_new_factor(secret_2FA, self.label_2FA_label)
+            secret_2FA= bytearray.fromhex(self.label_qr_data) #check if hex 
+            self.myfactors.add_new_factor(self.label_qr_data, self.label_2FA_label)
             self.label_qr_data= "QR code added!"
-            self.label_logs+= "Second factor added with label:" +"\n"+self.label_2FA_label+"\n"+LOG_SEP
+            self.label_logs+= "Second factor added\nlabel: "+self.label_2FA_label+"\n"+LOG_SEP
+            self.label_2FA_stored+= self.label_2FA_label+"\n"
+            self.load_list_2FA()
         except ValueError:
-            print("Error: the qr code should provide a hexadecimal value")
+            Logger.warning("Satochip: Error: the qr code should provide a hexadecimal value")
+            self.label_qr_data= "Error: code should be a hexadecimal value"
             self.label_logs+= "Error: the qr code should provide a hexadecimal value"+"\n"+LOG_SEP
+            
         self.btn_approve_qr_disabled=True
-        
-        
-       
+                                   
 class TestApp(App):
     def build(self):
         self.title = 'Satochip 2-Factor Authentication App'

@@ -1,3 +1,13 @@
 #!/bin/bash
 #Install pure python modules in the directory
 python3 -m pip install -r ./requirements.txt -t .
+
+# clone cryptos module   
+mkdir tmp
+pushd ./tmp
+git clone https://github.com/Alcofribas4/pybitcointools.git
+pushd ./pybitcointools
+cp -r cryptos ../..
+popd
+popd
+rm -rf ./tmp

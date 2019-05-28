@@ -43,8 +43,10 @@
             Label:
                 font_size: 20
                 text: root.display
+                size_hint_y: 0.65
             BoxLayout:
                 orientation: "horizontal"
+                size_hint_y: 0.35
                 OkButton:
                     on_release: root.approve_tx(self)
                     disabled:root.btn_disabled
@@ -58,8 +60,10 @@
             orientation: "vertical"
             Label:
                 text: root.label_qr_data
+                size_hint_y: 0.5
             BoxLayout:
                 orientation: "horizontal"
+                size_hint_y: 0.25
                 Label:
                     text: "Enter 2FA description here:"
                     canvas.before:
@@ -75,6 +79,7 @@
                     #disabled:root.btn_approve_qr_disabled
             BoxLayout:
                 orientation: "horizontal"
+                size_hint_y: 0.25
                 Button:
                     text: "scan QR code"
                     on_release: Clock.schedule_once(lambda dt: root.scan_qr(on_complete=root.on_qr))
@@ -86,7 +91,7 @@
     TabbedPanelItem:
         text: 'Manage 2FA'
         Label:
-            text: 'Add or remove 2FA'
+            text: root.label_2FA_stored #'Add or remove 2FA'
     
     TabbedPanelItem:
         text: 'Logs'

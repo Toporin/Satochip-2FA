@@ -1,0 +1,103 @@
+#:kivy 1.0.9
+#:import Clock kivy.clock.Clock
+
+<OkButton>:
+    text: root.btn_approve_tx
+
+<CancelButton>:
+    text: root.btn_reject_tx
+
+#class Satochip(GridLayout):
+# <Satochip>:    
+    # rows: 2
+    # cols: 1
+            
+    # Label:
+        # font_size: 15 
+        # #center_x: root.width / 4
+        # #top: root.top - 50
+        # text: root.display
+        
+    # BoxLayout:
+        # orientation: "horizontal"
+        # OkButton:
+            # on_release: root.approve_tx(self)
+            # disabled:root.btn_disabled
+            
+        # CancelButton:
+            # on_release: root.approve_tx(self)
+            # disabled:root.btn_disabled
+
+#class Satochip(TabbedPanel):            
+<Satochip>:  
+    size_hint: 1, 1
+    pos_hint: {'center_x': .5, 'center_y': .5}
+    do_default_tab: False
+    label_2FA_label: label_input.text
+    
+    TabbedPanelItem:
+        text: 'Tx'
+        GridLayout:
+            rows: 2
+            cols: 1
+            Label:
+                font_size: 20
+                text: root.display
+                size_hint_y: 0.65
+            BoxLayout:
+                orientation: "horizontal"
+                size_hint_y: 0.35
+                OkButton:
+                    on_release: root.approve_tx(self)
+                    disabled:root.btn_disabled
+                CancelButton:
+                    on_release: root.approve_tx(self)
+                    disabled:root.btn_disabled
+
+    TabbedPanelItem:
+        text: 'Scan QR'
+        BoxLayout:
+            orientation: "vertical"
+            Label:
+                text: root.label_qr_data
+                size_hint_y: 0.5
+            BoxLayout:
+                orientation: "horizontal"
+                size_hint_y: 0.25
+                Label:
+                    text: "Enter 2FA description here:"
+                    canvas.before:
+                        Color:
+                            rgb: .6, .6, .6
+                        Rectangle:
+                            pos: self.pos
+                            size: self.size 
+                TextInput:
+                    id: label_input
+                    multiline: False
+                    text: root.label_2FA_label
+                    #disabled:root.btn_approve_qr_disabled
+            BoxLayout:
+                orientation: "horizontal"
+                size_hint_y: 0.25
+                Button:
+                    text: "scan QR code"
+                    on_release: Clock.schedule_once(lambda dt: root.scan_qr(on_complete=root.on_qr))
+                Button:
+                    text: "confirm QR code"
+                    on_release: root.on_approve_qr()
+                    disabled:root.btn_approve_qr_disabled
+    
+    TabbedPanelItem:
+        text: 'Manage 2FA'
+        Label:
+            text: root.label_2FA_stored #'Add or remove 2FA'
+    
+    TabbedPanelItem:
+        text: 'Logs'
+        #ScrollView:
+        RecycleView:
+            Label:
+                size_hint: None, None    
+                size: self.texture_size
+                text: root.label_logs

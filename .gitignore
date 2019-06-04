@@ -1,0 +1,17 @@
+.buildozer/
+certifi/
+chardet/
+cryptos/
+idna/
+pyaes/
+requests/
+urllib3/
+__pycache__/
+*.dist-info/
+
+#debug data
+logs.txt
+data.json
+
+#contains the android package
+#bin/

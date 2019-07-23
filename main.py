@@ -20,7 +20,10 @@ from kivy.app import App
 from kivy.uix.widget import Widget
 from kivy.uix.button import Button
 from kivy.uix.gridlayout import GridLayout
+from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.tabbedpanel import TabbedPanel
+from kivy.uix.popup import Popup
+from kivy.uix.textinput import TextInput
 from kivy.properties import StringProperty, BooleanProperty, ObjectProperty
 from kivy.clock import Clock
 from kivy.utils import platform
@@ -279,7 +282,7 @@ class Satochip(TabbedPanel):
                         addr= "unsupported script:"+script+"\n"
                     
                     txt+="input:\n"
-                    txt+= "    "+"address: "+addr+" spent: "+str(txparser.inputAmountLong)+"\n"
+                    txt+= "    "+"address: "+addr+" spent: "+str(txparser.inputAmountLong/100000)+"\n"  #satoshi to mBtc
                                                         
                    #parse outputs
                     outputs_hex= message['txo']
@@ -295,7 +298,7 @@ class Satochip(TabbedPanel):
                     txt+="outputs:\n"
                     amnt_out=0
                     for i in range(nb_outs):
-                        amnt= outparser.outAmounts[i]
+                        amnt= outparser.outAmounts[i]  
                         amnt_out+=amnt
                         script= outparser.outScripts[i].hex()
                         if script.startswith( '76a914' ):#p2pkh
@@ -313,8 +316,8 @@ class Satochip(TabbedPanel):
                         Logger.debug("Satochip: outScripts: "+script)
                         Logger.debug("Satochip: amount: "+str(amnt))
                         Logger.debug("Satochip: address: "+addr)
-                        txt+= "    "+"address: "+addr+" spent: "+str(amnt)+"\n"
-                    txt+= "    "+"total: "+str(amnt_out)+"\n"
+                        txt+= "    "+"address: "+addr+" spent: "+str(amnt/100000)+"\n"  #satoshi to mBtc
+                    txt+= "    "+"total: "+str(amnt_out/100000)+" mBtc\n"  #satoshi to mBtc
                     
                     if hashOutputs!=txparser.hashOutputs.hex():
                         txt+= "Warning! inconsistent output hashes!\n"
@@ -358,8 +361,12 @@ class Satochip(TabbedPanel):
                             addr= coin.scripttoaddr(script)
                             Logger.debug("Satochip: address: "+addr)
                         
-                        # get value from blockchain server
-                        unspent= coin.unspent_web(addr)
+                        # get value from blockchain explorer
+                        unspent=[]
+                        try: 
+                            unspent= coin.unspent_web(addr)
+                        except Exception as e:
+                            Logger.warning("Exception during coin.unspent_web request: "+str(e))
                         val=0
                         for d in unspent:
                             val+=d['value']
@@ -372,9 +379,9 @@ class Satochip(TabbedPanel):
                         # except Exception as e:
                             # Logger.warning("Exception during coin.balance request: "+str(e))
                         
-                        txt+="    "+"address: "+addr+" balance: "+str(val)+"\n"
+                        txt+="    "+"address: "+addr+" balance: "+str(val/100000)+"\n"  #satoshi to mBtc
                         amount_in+=val
-                    txt+="    "+"total: "+str(amount_in)+"\n"
+                    txt+="    "+"total: "+str(amount_in/100000)+" mBtc\n"  #satoshi to mBtc
                     
                     # outputs    
                     fee=0
@@ -384,7 +391,7 @@ class Satochip(TabbedPanel):
                     txt+="nb_outputs: "+str(nb_outs) + "\n"
                     txt+="outputs:\n"
                     for o in outs:
-                        val= o['value']
+                        val= (o['value'])
                         script= o['script'].hex()
                         Logger.debug("Satochip: output script: "+script)
                         if script.startswith( '76a914' ):# p2pkh
@@ -399,11 +406,11 @@ class Satochip(TabbedPanel):
                             addr= coin.hash_to_segwit_addr(hash)
                         else: 
                             addr= "unsupported script:"+script+"\n"
-                        txt+="    "+"address: "+addr+" spent: "+str(val)+"\n"
+                        txt+="    "+"address: "+addr+" spent: "+str(val/100000)+"\n" #satoshi to mBtc
                         amount_out+=val
-                    txt+="    "+"total: "+str(amount_out)+"\n"
+                    txt+="    "+"total: "+str(amount_out/100000)+" mBtc\n"  #satoshi to mBtc
                     fee= amount_in-amount_out
-                    txt+="    "+"fees:  "+str(fee)+"\n"
+                    txt+="    "+"fees:  "+str(fee/100000)+" mBtc\n"  #satoshi to mBtc
                     
                 self.listener.postbox.append([keyhash,pre_tx_hex])
                 self.display = txt
@@ -415,6 +422,9 @@ class Satochip(TabbedPanel):
     
     def scan_qr(self, on_complete):
         if platform != 'android':
+            print("Qr code scanning is not supported!")
+            save_popup = SaveDialog(self)
+            save_popup.open()
             return
         from jnius import autoclass, cast
         from android import activity
@@ -461,6 +471,42 @@ class TestApp(App):
         root= Satochip()
         Clock.schedule_interval(root.update, 3.0)
         return root
+
+# on platform where qr code scanning is not (yet) supported, it is possible to copy/paste the 2FA key via a popup windows...
+class SaveDialog(Popup):
+
+    def __init__(self,my_widget,**kwargs): 
+        print("Debug in")
+        super(SaveDialog,self).__init__(**kwargs)
+
+        self.my_widget = my_widget
+        
+        #txt input
+        self.content = BoxLayout(orientation="vertical")
+        self.name_input = TextInput(text='enter 2FA key here...')
+        
+        #buttons
+        self.content2 = BoxLayout(orientation="horizontal")
+        self.save_button = Button(text='Save')
+        self.save_button.bind(on_press=self.save)
+        self.cancel_button = Button(text='Cancel')
+        self.cancel_button.bind(on_press=self.cancel)
+        self.content2.add_widget(self.save_button)
+        self.content2.add_widget(self.cancel_button)
+        
+        self.content.add_widget(self.name_input)
+        self.content.add_widget(self.content2)
+         
+    def save(self,*args):
+        print("save 2FA")
+        self.my_widget.label_qr_data= self.name_input.text
+        self.my_widget.btn_approve_qr_disabled=False
+        self.dismiss()
+
+    def cancel(self,*args):
+        print("cancel 2FA")
+        self.dismiss()
+
 
 if __name__ == '__main__':
     TestApp().run()

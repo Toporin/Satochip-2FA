@@ -29,9 +29,20 @@ source.exclude_dirs = tests, bin, .git, __pycache__
 source.exclude_patterns = *.dist-info
 
 # (str) Application versioning (method 1)
-# v0.1: initial version
+# v0.1: initial version (32-bit)
 # v0.2: support for segwit, multisig, multiple coin, multiple 2FA, logs, qrcodes, save data, data encryption
-version = 0.2
+# v0.3: same as v0.2 but for 64-bit 
+# v0.4-0.5: unreleased
+# v0.6: for 32-bit platforms
+#       + patch bug (crash when blockchain.info api unavailable) 
+#       + allows copy/paste 2FA factor when qr code is not supported (windows/linux) 
+#       + show amounts in mBtc instead of satoshi (as in electrum)
+# v0.7: same as v0.6 but for 64-bit platforms
+version = 0.7
+
+# (str) The Android arch to build for, choices: armeabi-v7a, arm64-v8a, x86
+#android.arch = armeabi-v7a
+android.arch = arm64-v8a 
 
 # (str) Application versioning (method 2)
 # version.regex = __version__ = ['"](.*)['"]
@@ -209,7 +220,8 @@ android.manifest.launch_mode = standard
 #android.copy_libs = 1
 
 # (str) The Android arch to build for, choices: armeabi-v7a, arm64-v8a, x86
-android.arch = armeabi-v7a
+#android.arch = armeabi-v7a
+#android.arch = arm64-v8a 
 
 #
 # Python for android (p4a) specific

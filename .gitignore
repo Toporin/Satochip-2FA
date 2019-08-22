@@ -1,4 +1,7 @@
 .buildozer/
+
+# python modules
+cashaddress/
 certifi/
 chardet/
 cryptos/
@@ -6,8 +9,10 @@ idna/
 pyaes/
 requests/
 urllib3/
+
 __pycache__/
 *.dist-info/
+tests/
 
 #debug data
 logs.txt

@@ -44,7 +44,8 @@ import ssl
 import json
 import base64
 from cryptos import transaction, main #deserialize
-from cryptos.coins import Bitcoin
+from cryptos.coins import Bitcoin, BitcoinCash
+from cashaddress import convert # cashAddr conversion for bcash
 from xmlrpc.client import ServerProxy
 
 from TxParser import TxParser
@@ -57,6 +58,23 @@ context.verify_mode =  ssl.CERT_REQUIRED
 context.check_hostname = True
 context.load_verify_locations(ca_path)
 server = ServerProxy('https://cosigner.electrum.org/', allow_none=True, context=context)
+
+# # xmlrpc server for bcash
+# from xmlrpc.client import ServerProxy, Transport
+# import http.client 
+# # Workarounds to the fact that xmlrpc.client doesn't take a timeout= arg.
+# class TimeoutTransport(Transport):
+    # def __init__(self, timeout=2.0, *l, **kw):
+        # super().__init__(*l, **kw)
+        # self.timeout = timeout
+    # def make_connection(self, host):
+        # return http.client.HTTPConnection(host, timeout=self.timeout)
+# class TimeoutServerProxy(ServerProxy):
+    # def __init__(self, uri, timeout=2.0, *l, **kw):
+        # kw['transport'] = TimeoutTransport(timeout=timeout, use_datetime=kw.get('use_datetime', False))
+        # super().__init__(uri, *l, **kw)
+# # /end timeout= Workarounds
+# server = TimeoutServerProxy('http://sync.imaginary.cash:8081', allow_none=True,  timeout = 2.0)
 
 DEBUG=True
 DEBUG_SECRET_2FA= "00"*20  #b'\0'*20
@@ -138,7 +156,7 @@ class Satochip(TabbedPanel):
     def load_list_2FA(self):
         self.label_2FA_stored="List of stored 2FA:\n\n"
         for keyhash in self.myfactors.datastore.keys():
-            self.label_2FA_stored+="id: "+keyhash[0:32]+"...\nlabel: "+self.myfactors.datastore.get(keyhash)['label_2FA']+"\n"+LOG_SEP
+            self.label_2FA_stored+="label: "+self.myfactors.datastore.get(keyhash)['label_2FA']+"\n"+"id: "+keyhash[0:32]+"...\n"+LOG_SEP
         
     def approve_tx(self, btn): 
         letter= self.listener.postbox.pop()
@@ -230,8 +248,12 @@ class Satochip(TabbedPanel):
                 coin_type= message['ct']
                 if coin_type==0:
                     coin= Bitcoin(False)
-                elif coin_type==1:
+                elif coin_type==1: #btc testnet
                     coin= Bitcoin(True)
+                elif coin_type==145: #bcash
+                    istest= message['tn']
+                    coin= BitcoinCash(testnet=istest)
+                    is_segwit= True # bcash uses BIP143 for signature hash creation
                 else:
                     Logger.warning("Satochip: Coin not (yet) supported: "+str(coin_type))
                     coin=BaseCoin()
@@ -278,6 +300,11 @@ class Satochip(TabbedPanel):
                         h= transaction.output_script_to_h160(script)
                         addr= coin.p2sh_scriptaddr("0014"+h)
                         Logger.debug("Satochip: p2wpkh-p2sh address: "+addr)
+                    elif (coin_type==145) and (txin_type== 'p2pkh' or txin_type== 'p2sh'): # for bcash
+                        addr= coin.scripttoaddr(script)
+                        addr= convert.to_cash_address(addr) #cashAddr conversion
+                        addr= addr.split(":",1)[-1] #remove prefix
+                        Logger.debug("Satochip: '+ txin_type +' address: "+addr)
                     else:
                         addr= "unsupported script:"+script+"\n"
                     
@@ -313,6 +340,11 @@ class Satochip(TabbedPanel):
                             addr= coin.hash_to_segwit_addr(hash)
                         else: 
                             addr= "unsupported script:"+script+"\n"
+                            
+                        if coin_type==145: 
+                            addr= convert.to_cash_address(addr) #cashAddr conversion
+                            addr= addr.split(":",1)[-1] #remove prefix
+                        
                         Logger.debug("Satochip: outScripts: "+script)
                         Logger.debug("Satochip: amount: "+str(amnt))
                         Logger.debug("Satochip: address: "+addr)
@@ -324,7 +356,14 @@ class Satochip(TabbedPanel):
                 
                 # non-segwit tx
                 else:
-                    pre_tx_dic= transaction.deserialize(pre_tx)
+                    pre_tx_dic={}
+                    try: 
+                        pre_tx_dic= transaction.deserialize(pre_tx)
+                    except Exception as e:
+                        Logger.warning("Exception during (non-segwit) tx parsing: "+str(e))
+                        txt="Error parsing tx!"
+                        self.listener.clear(keyhash)
+                        break
                     Logger.debug("Satochip: pre_tx_dic: "+str(pre_tx_dic))
                     
                     # inputs 

@@ -2,7 +2,7 @@
 #Install pure python modules in the directory
 python3 -m pip install -r ./requirements.txt -t .
 
-# clone cryptos module   
+# clone cryptos module from github  
 mkdir tmp
 pushd ./tmp
 git clone https://github.com/Alcofribas4/pybitcointools.git

@@ -38,11 +38,15 @@ source.exclude_patterns = *.dist-info
 #       + allows copy/paste 2FA factor when qr code is not supported (windows/linux) 
 #       + show amounts in mBtc instead of satoshi (as in electrum)
 # v0.7: same as v0.6 but for 64-bit platforms
-version = 0.7
+# v0.8: add Bitcoin Cash support 
+# v0.9: same as v0.8 but for 64-bit platforms
+version = 0.9
 
 # (str) The Android arch to build for, choices: armeabi-v7a, arm64-v8a, x86
+# 32bit platform (even version number)
 #android.arch = armeabi-v7a
-android.arch = arm64-v8a 
+# 64bit platform (odd version number)
+android.arch = arm64-v8a
 
 # (str) Application versioning (method 2)
 # version.regex = __version__ = ['"](.*)['"]

@@ -44,7 +44,7 @@ import ssl
 import json
 import base64
 from cryptos import transaction, main #deserialize
-from cryptos.coins import Bitcoin, BitcoinCash
+from cryptos.coins import Bitcoin, BitcoinCash, Litecoin
 from cashaddress import convert # cashAddr conversion for bcash
 from xmlrpc.client import ServerProxy
 
@@ -250,6 +250,9 @@ class Satochip(TabbedPanel):
                     coin= Bitcoin(False)
                 elif coin_type==1: #btc testnet
                     coin= Bitcoin(True)
+                elif coin_type==2: #litecoin
+                    istest= message['tn']
+                    coin= Litecoin(testnet=istest)
                 elif coin_type==145: #bcash
                     istest= message['tn']
                     coin= BitcoinCash(testnet=istest)
@@ -304,7 +307,7 @@ class Satochip(TabbedPanel):
                         addr= coin.scripttoaddr(script)
                         addr= convert.to_cash_address(addr) #cashAddr conversion
                         addr= addr.split(":",1)[-1] #remove prefix
-                        Logger.debug("Satochip: '+ txin_type +' address: "+addr)
+                        Logger.debug("Satochip: txin type: "+ txin_type +" address: "+addr)
                     else:
                         addr= "unsupported script:"+script+"\n"
                     
@@ -328,6 +331,9 @@ class Satochip(TabbedPanel):
                         amnt= outparser.outAmounts[i]  
                         amnt_out+=amnt
                         script= outparser.outScripts[i].hex()
+                        is_data_script=False
+                        Logger.debug("Satochip: outScripts: "+script)
+                        Logger.debug("Satochip: amount: "+str(amnt))
                         if script.startswith( '76a914' ):#p2pkh
                             addr= coin.scripttoaddr(script)
                         elif script.startswith( 'a914' ): #p2sh
@@ -338,18 +344,19 @@ class Satochip(TabbedPanel):
                         elif script.startswith( '0020' ): #p2wsh
                             hash= bytes.fromhex(script[4:])
                             addr= coin.hash_to_segwit_addr(hash)
+                        elif script.startswith( '6a' ): # op_return data script  
+                            addr= "DATA: "+bytes.fromhex(script[6:]).decode('utf-8')
+                            is_data_script=True                            
                         else: 
                             addr= "unsupported script:"+script+"\n"
                             
-                        if coin_type==145: 
-                            addr= convert.to_cash_address(addr) #cashAddr conversion
-                            addr= addr.split(":",1)[-1] #remove prefix
-                        
-                        Logger.debug("Satochip: outScripts: "+script)
-                        Logger.debug("Satochip: amount: "+str(amnt))
+                        if coin_type==145 and not is_data_script:
+                                addr= convert.to_cash_address(addr) #cashAddr conversion
+                                addr= addr.split(":",1)[-1] #remove prefix
+                            
                         Logger.debug("Satochip: address: "+addr)
                         txt+= "    "+"address: "+addr+" spent: "+str(amnt/100000)+"\n"  #satoshi to mBtc
-                    txt+= "    "+"total: "+str(amnt_out/100000)+" mBtc\n"  #satoshi to mBtc
+                    txt+= "    "+"total: "+str(amnt_out/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
                     
                     if hashOutputs!=txparser.hashOutputs.hex():
                         txt+= "Warning! inconsistent output hashes!\n"
@@ -401,26 +408,25 @@ class Satochip(TabbedPanel):
                             Logger.debug("Satochip: address: "+addr)
                         
                         # get value from blockchain explorer
-                        unspent=[]
+                        val=0
                         try: 
                             unspent= coin.unspent_web(addr)
+                            for d in unspent:
+                                val+=d['value']
                         except Exception as e:
                             Logger.warning("Exception during coin.unspent_web request: "+str(e))
-                        val=0
-                        for d in unspent:
-                            val+=d['value']
-                        # get value from electrum server (seem slow...)
-                        # try:
-                            # hs= sha256(bytes.fromhex(script)).digest()
-                            # hs= hs[::-1]
-                            # balances=  coin.balance(True, hs.hex())
-                            # val= sum(balances)                                  
-                        # except Exception as e:
-                            # Logger.warning("Exception during coin.balance request: "+str(e))
+                            #try to get value from electrum server (seem slow...)
+                            # try:
+                                # hs= sha256(bytes.fromhex(script)).digest()
+                                # hs= hs[::-1]
+                                # balances=  coin.balance(True, hs.hex())
+                                # val= sum(balances)                                  
+                            # except Exception as e:
+                                # Logger.warning("Exception during coin.balance request: "+str(e))                            
                         
-                        txt+="    "+"address: "+addr+" balance: "+str(val/100000)+"\n"  #satoshi to mBtc
+                        txt+="    "+"address: "+addr+" balance: "+str(val/100000) +"\n" 
                         amount_in+=val
-                    txt+="    "+"total: "+str(amount_in/100000)+" mBtc\n"  #satoshi to mBtc
+                    txt+="    "+"total: "+str(amount_in/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
                     
                     # outputs    
                     fee=0
@@ -447,9 +453,10 @@ class Satochip(TabbedPanel):
                             addr= "unsupported script:"+script+"\n"
                         txt+="    "+"address: "+addr+" spent: "+str(val/100000)+"\n" #satoshi to mBtc
                         amount_out+=val
-                    txt+="    "+"total: "+str(amount_out/100000)+" mBtc\n"  #satoshi to mBtc
+                    txt+="    "+"total: "+str(amount_out/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
                     fee= amount_in-amount_out
-                    txt+="    "+"fees:  "+str(fee/100000)+" mBtc\n"  #satoshi to mBtc
+                    if fee >=0:
+                        txt+="    "+"fees:  "+str(fee/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
                     
                 self.listener.postbox.append([keyhash,pre_tx_hex])
                 self.display = txt

@@ -104,11 +104,12 @@ class Factors():
         
     def add_new_factor(self,secret_2FA, label_2FA):
         mac = hmac.new(bytes.fromhex(secret_2FA), "id_2FA".encode('utf-8'), sha1)
+        id_2FA_20b= mac.hexdigest()
         id_2FA= sha256(mac.digest()).hexdigest()
         mac = hmac.new(bytes.fromhex(secret_2FA), "key_2FA".encode('utf-8'), sha1)
         key_2FA= mac.hexdigest()[0:32] # keep first 16 bytes out of 20
         idreply_2FA=sha256(id_2FA.encode('utf-8')).hexdigest()
-        self.datastore.put(id_2FA, secret_2FA=secret_2FA, key_2FA= key_2FA, label_2FA=label_2FA, idreply_2FA=idreply_2FA)
+        self.datastore.put(id_2FA, secret_2FA=secret_2FA, key_2FA= key_2FA, label_2FA=label_2FA, idreply_2FA=idreply_2FA, id_2FA_20b=id_2FA_20b)
         Logger.info("Satochip: \nAdded new factor on "+ str(datetime.now())+"\n"
                             +"label: "+ label_2FA+"\n"
                             +"id_2FA: "+ id_2FA+"\n"
@@ -161,33 +162,22 @@ class Satochip(TabbedPanel):
     def approve_tx(self, btn): 
         letter= self.listener.postbox.pop()
         keyhash= letter[0]
-        pre_tx_hex=letter[1]
-        pre_tx= bytes.fromhex(pre_tx_hex)
-        
-        if len(pre_tx_hex)==8: # reset_seed
-            pre_hash= pre_tx + (b'\0'*60) # padd to 64-bytes with 0
-            pre_hash_hex= pre_hash.hex()
-        else:
-            # compute tx_hash
-            pre_hash= sha256(pre_tx).digest()
-            pre_hash= sha256(pre_hash).digest()
-            pre_hash= pre_hash+ (b'\0'*32) # 32bytes zero-padding ()
-            pre_hash_hex= pre_hash.hex()
+        challenge= letter[1]
         
         #compute  response to challenge and send back...
-        reply=pre_hash_hex[0:64]+":"
+        reply= challenge+":"
         if (btn.text == APPROVE_TX):
             secret_2FA=bytes.fromhex(self.myfactors.datastore.get(keyhash)['secret_2FA'])
-            mac = hmac.new(secret_2FA, pre_hash, sha1)
+            mac = hmac.new(secret_2FA, bytes.fromhex(challenge), sha1)
             reply+= mac.hexdigest()
-            self.display = "Tx approved!"
-            self.label_logs+= "Tx approved" +"\n"+LOG_SEP
-            Logger.info("Satochip: APPROVED tx with hash: "+pre_hash_hex[0:64]+" on "+str(datetime.now()))
+            self.display = "Action approved!"
+            self.label_logs+= "Action approved" +"\n"+LOG_SEP
+            Logger.info("Satochip: APPROVED action with hash: "+challenge+" on "+str(datetime.now()))
         else: 
             reply+= "00"*20
             self.display = "Tx rejected!"
             self.label_logs+= "Tx rejected" +"\n"+LOG_SEP
-            Logger.info("Satochip: REJECTED tx with hash: "+pre_hash_hex[0:64]+" on "+str(datetime.now()))
+            Logger.info("Satochip: REJECTED tx with hash: "+challenge+" on "+str(datetime.now()))
         Logger.debug("Satochip: Challenge-response: "+ reply)
         replyhash= self.myfactors.datastore.get(keyhash)['idreply_2FA']
           
@@ -243,15 +233,31 @@ class Satochip(TabbedPanel):
                 decrypted = decrypter.feed(ciphertext)
                 decrypted += decrypter.feed()
                 Logger.debug("Satochip: Challenge decrypted: "+decrypted.decode('ascii'))
-                
                 message= json.loads(decrypted) 
+                if 'action' in message:
+                    action= message['action']
+                else:
+                    action= "sign_tx"
                 
-                if 'counter' in message:
-                    counter= message['counter']
-                    txt= "Request to reset the seed!"
-                    pre_tx_hex= bytearray(counter).hex() #8hex string
-                    pre_hash_hex= ('00'*32) #dummy val
-                else: 
+                if action=="reset_seed":
+                    authentikeyx= message['authentikeyx']
+                    txt= "Request to reset the seed!\nAuthentikey:"+authentikeyx
+                    challenge= authentikeyx + 32*'FF'
+                elif action == "reset_2FA":
+                    txt= "Request to reset 2FA!\nID_2FA:"+keyhash
+                    try:
+                        id_2FA_20b= self.myfactors.datastore.get(keyhash)['id_2FA_20b']
+                    except Exception as ex: # not supported for 2FA created in app version <=0.8/0.9
+                        id_2FA_20b= keyhash 
+                    challenge= id_2FA_20b + 44*'AA'
+                elif action == "sign_msg":
+                    msg= message['msg']
+                    txt= "Request to sign message:\n"+msg
+                    from cryptos.main import num_to_var_int
+                    paddedmsgbytes = b"\x18Bitcoin Signed Message:\n" + num_to_var_int(len(msg)) + bytes(msg, 'utf-8')
+                    paddedmsghash= sha256(paddedmsgbytes).hexdigest()
+                    challenge= paddedmsghash + 32*"BB"
+                elif action== "sign_tx":
                     is_segwit= message['sw']
                     txt="2FA: "+label+"\n" 
                         
@@ -277,6 +283,7 @@ class Satochip(TabbedPanel):
                     pre_tx_hex=message['tx']
                     pre_tx= bytes.fromhex(pre_tx_hex)
                     pre_hash_hex=  sha256(sha256(pre_tx).digest()).hexdigest()
+                    challenge= pre_hash_hex+ 32*'00'
                     if is_segwit:
                         
                         #parse segwit tx
@@ -468,11 +475,20 @@ class Satochip(TabbedPanel):
                         fee= amount_in-amount_out
                         if fee >=0:
                             txt+="    "+"fees:  "+str(fee/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
-                        
-                self.listener.postbox.append([keyhash,pre_tx_hex])
+                else: 
+                    txt= "Unsupported operation: "+decrypted.decode('ascii')
+                
+                # 2FA challenges:
+                # - Tx approval: [ 32b Tx hash | 32-bit 0x00-padding ]
+                # - ECkey import:[ 32b coordx  | 32-bit (0x10^key_nb)-padding ]
+                # - ECkey reset: [ 32b coordx  | 32-bit (0x20^key_nb)-padding ]
+                # - 2FA reset:   [ 20b 2FA_ID  | 32-bit 0xAA-padding ]  
+                # - Seed reset:  [ 32b authntikey-coordx  | 32-bit 0xFF-padding ]
+                # - Msg signing: [ 32b SHA26(btcHeader+msg) | 32-bit 0xBB-padding ]
+                self.listener.postbox.append([keyhash, challenge])
                 self.display = txt
                 self.label_logs+= txt +"\n"
-                Logger.info("Satochip: \nNew tx with hash: "+pre_hash_hex+"\nReceived on "+str(datetime.now())+":\n"+txt)
+                Logger.info("Satochip: \nNew challenge: "+challenge+"\nReceived on "+str(datetime.now())+":\n"+txt)
                 
                 self.btn_disabled= False
                 break
@@ -521,6 +537,8 @@ class Satochip(TabbedPanel):
             self.label_logs+= "Error: the qr code should provide a hexadecimal value"+"\n"+LOG_SEP
             
         self.btn_approve_qr_disabled=True
+        
+        
                                    
 class TestApp(App):
     def build(self):

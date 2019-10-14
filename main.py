@@ -45,6 +45,7 @@ import json
 import base64
 from cryptos import transaction, main #deserialize
 from cryptos.coins import Bitcoin, BitcoinCash, Litecoin
+from cryptos.main import num_to_var_int
 from cashaddress import convert # cashAddr conversion for bcash
 from xmlrpc.client import ServerProxy
 
@@ -252,9 +253,15 @@ class Satochip(TabbedPanel):
                     challenge= id_2FA_20b + 44*'AA'
                 elif action == "sign_msg":
                     msg= message['msg']
-                    txt= "Request to sign message:\n"+msg
-                    from cryptos.main import num_to_var_int
-                    paddedmsgbytes = b"\x18Bitcoin Signed Message:\n" + num_to_var_int(len(msg)) + bytes(msg, 'utf-8')
+                    if 'alt' in message:
+                        altcoin= message['alt']
+                        headersize= bytes([ len(altcoin)+17 ])
+                        paddedmsgbytes = headersize + altcoin.encode('utf8') + b" Signed Message:\n" + num_to_var_int(len(msg)) + bytes(msg, 'utf-8')
+                    else:
+                        altcoin= "Bitcoin"
+                        paddedmsgbytes = b"\x18Bitcoin Signed Message:\n" + num_to_var_int(len(msg)) + bytes(msg, 'utf-8')
+          
+                    txt= "Request to sign "+ altcoin +" message:\n"+msg+"\n"
                     paddedmsghash= sha256(paddedmsgbytes).hexdigest()
                     challenge= paddedmsghash + 32*"BB"
                 elif action== "sign_tx":

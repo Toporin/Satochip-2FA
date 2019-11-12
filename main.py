@@ -259,8 +259,7 @@ class Satochip(TabbedPanel):
                         paddedmsgbytes = headersize + altcoin.encode('utf8') + b" Signed Message:\n" + num_to_var_int(len(msg)) + bytes(msg, 'utf-8')
                     else:
                         altcoin= "Bitcoin"
-                        paddedmsgbytes = b"\x18Bitcoin Signed Message:\n" + num_to_var_int(len(msg)) + bytes(msg, 'utf-8')
-          
+                        paddedmsgbytes = b"\x18Bitcoin Signed Message:\n" + num_to_var_int(len(msg)) + bytes(msg, 'utf-8')          
                     txt= "Request to sign "+ altcoin +" message:\n"+msg+"\n"
                     paddedmsghash= sha256(paddedmsgbytes).hexdigest()
                     challenge= paddedmsghash + 32*"BB"

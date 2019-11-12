@@ -51,9 +51,9 @@ version = 0.13
 
 # (str) The Android arch to build for, choices: armeabi-v7a, arm64-v8a, x86
 # 32bit platform (even version number)
-#android.arch = armeabi-v7a
+android.arch = armeabi-v7a
 # 64bit platform (odd version number)
-android.arch = arm64-v8a
+#android.arch = arm64-v8a
 
 # (str) Application versioning (method 2)
 # version.regex = __version__ = ['"](.*)['"]

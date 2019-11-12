@@ -45,13 +45,15 @@ source.exclude_patterns = *.dist-info
 #       + 2FA now required to sign messages, import eckey and reset seed/eckey/2FA.
 #       + 2FA can only be disabled when the seed and all private keys are cleared.
 # v0.11: same as v0.10 but for 64-bit platforms
-version = 0.10
+# v0.12: Patch message signing for Litecoin (and other alts) on 32-bit platforms
+# v0.13: same as v0.12 but for 64-bit platforms
+version = 0.13
 
 # (str) The Android arch to build for, choices: armeabi-v7a, arm64-v8a, x86
 # 32bit platform (even version number)
-android.arch = armeabi-v7a
+#android.arch = armeabi-v7a
 # 64bit platform (odd version number)
-#android.arch = arm64-v8a
+android.arch = arm64-v8a
 
 # (str) Application versioning (method 2)
 # version.regex = __version__ = ['"](.*)['"]

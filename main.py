@@ -47,7 +47,17 @@ from cryptos import transaction, main #deserialize
 from cryptos.coins import Bitcoin, BitcoinCash, Litecoin
 from cryptos.main import num_to_var_int
 from cashaddress import convert # cashAddr conversion for bcash
-from xmlrpc.client import ServerProxy
+from xmlrpc.client import ServerProxy 
+
+#ethereum utils
+from eth_keys import keys
+from eth_keys import KeyAPI
+from eth_keys.backends import NativeECCBackend
+from eth_utils import keccak
+from eth_account import messages
+import rlp
+from eth.vm.forks.spurious_dragon.transactions import SpuriousDragonTransaction #py-evm
+from eth._utils.transactions import create_transaction_signature, extract_chain_id, is_eip_155_signed_transaction
 
 from TxParser import TxParser
 #import segwit_addr
@@ -481,6 +491,56 @@ class Satochip(TabbedPanel):
                         fee= amount_in-amount_out
                         if fee >=0:
                             txt+="    "+"fees:  "+str(fee/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
+                
+                # sign message hash, currently only supports Ethereum
+                elif action== "sign_msg_hash":
+                    msg= message['msg']
+                    hash= message['hash']
+                    altcoin= "Ethereum"
+                    
+                    paddedmsghash= bytes(messages.defunct_hash_message(text=msg)).hex() #sha256(paddedmsgbytes).hexdigest()
+                    Logger.info("Msg hash1: "+hash)
+                    Logger.info("Msg hash2: "+paddedmsghash)
+                    txt= "Request to sign "+ altcoin +" message:\n"+msg+"\n"
+                    if paddedmsghash!=hash:
+                        txt+= "Warning! inconsistent msg hashes!\n"
+                    challenge= paddedmsghash + 32*"CC"
+                
+                elif action== "sign_tx_hash":
+                    tx= message['tx']
+                    hash= message['hash']
+                    txbytes= bytes.fromhex(tx)
+                    tx_hash = keccak(txbytes).hex()
+                    txrlp= rlp.decode(txbytes, SpuriousDragonTransaction)
+                    tx_nonce= txrlp.nonce
+                    tx_gas= txrlp.gas
+                    tx_gas_price=txrlp.gas_price
+                    tx_to='0x'+txrlp.to.hex()
+                    tx_value= txrlp.value 
+                    tx_data= txrlp.data.hex()
+                    tx_chainid= txrlp.v
+                    
+                    chain_file= "./chains/_data/chains/"+str(tx_chainid)+".json"
+                    Logger.info("ChainId file:"+chain_file)
+                    chain_store = JsonStore(chain_file)
+                    tx_coinname= chain_store.get("nativeCurrency")["name"]
+                    tx_coinsymbol= chain_store.get("nativeCurrency")["symbol"]
+                    tx_coindecimals=chain_store.get("nativeCurrency")["decimals"]
+                    
+                    txt="2FA: "+label+"\n" 
+                    txt+="Coin: "+tx_coinname+"\n" 
+                    txt+="From: "+"todo"+"\n" 
+                    txt+="To: "+tx_to+"\n" 
+                    txt+="Value: "+ str(tx_value/(10**tx_coindecimals)) +tx_coinsymbol+"\n" 
+                    txt+="Gas: "+str(tx_gas)+"\n" 
+                    txt+="Gas price: "+str(tx_gas_price)+"\n"
+                    txt+="Max fee: "+str(tx_gas*tx_gas_price/(10**tx_coindecimals)) +tx_coinsymbol+"\n" 
+                    txt+="Data: "+tx_data+"\n" #todo: parse data
+                    txt+="Hash: "+tx_hash+"\n" #debug
+                    if tx_hash!=hash:
+                        txt+= "Warning! inconsistent tx hashes!\n"
+                    challenge= tx_hash + 32*"CC"
+                    
                 else: 
                     txt= "Unsupported operation: "+decrypted.decode('ascii')
                 
@@ -488,9 +548,10 @@ class Satochip(TabbedPanel):
                 # - Tx approval: [ 32b Tx hash | 32-bit 0x00-padding ]
                 # - ECkey import:[ 32b coordx  | 32-bit (0x10^key_nb)-padding ]
                 # - ECkey reset: [ 32b coordx  | 32-bit (0x20^key_nb)-padding ]
-                # - 2FA reset:   [ 20b 2FA_ID  | 32-bit 0xAA-padding ]  
-                # - Seed reset:  [ 32b authntikey-coordx  | 32-bit 0xFF-padding ]
+                # - 2FA reset:   [ 20b 2FA_ID  | 44-bit 0xAA-padding ]  
+                # - Seed reset:  [ 32b authentikey-coordx  | 32-bit 0xFF-padding ]
                 # - Msg signing: [ 32b SHA26(btcHeader+msg) | 32-bit 0xBB-padding ]
+                # - Hash signing: [ 32b hash | 32-bit 0xBB-padding]
                 self.listener.postbox.append([keyhash, challenge])
                 self.display = txt
                 self.label_logs+= txt +"\n"
@@ -563,6 +624,7 @@ class SaveDialog(Popup):
         self.my_widget = my_widget
         
         #txt input
+        self.title='Set 2FA key'
         self.content = BoxLayout(orientation="vertical")
         self.name_input = TextInput(text='enter 2FA key here...')
         

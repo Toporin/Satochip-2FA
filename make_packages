@@ -11,3 +11,6 @@ cp -r cryptos ../..
 popd
 popd
 rm -rf ./tmp
+
+# clone ethereum-lists/chains module from github  
+git clone https://github.com/ethereum-lists/chains.git

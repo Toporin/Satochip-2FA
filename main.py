@@ -50,15 +50,19 @@ from cashaddress import convert # cashAddr conversion for bcash
 from xmlrpc.client import ServerProxy 
 
 #ethereum utils
-from eth_keys import keys
-from eth_keys import KeyAPI
-from eth_keys.backends import NativeECCBackend
-from eth_utils import keccak
-from eth_account import messages
-import rlp
-from eth.vm.forks.spurious_dragon.transactions import SpuriousDragonTransaction #py-evm
-from eth._utils.transactions import create_transaction_signature, extract_chain_id, is_eip_155_signed_transaction
-
+try: 
+    #from eth_keys import keys
+    #from eth_keys import KeyAPI
+    #from eth_keys.backends import NativeECCBackend
+    #from eth_account import messages
+    #from eth_messages import defunct_hash_message
+    from eth_utils import keccak
+    import rlp
+    import eth_messages
+    import eth_transactions
+except Exception as ex:
+    Logger.warning("Exception during ethereum package import: "+str(ex))                   
+            
 from TxParser import TxParser
 #import segwit_addr
 
@@ -498,7 +502,7 @@ class Satochip(TabbedPanel):
                     hash= message['hash']
                     altcoin= "Ethereum"
                     
-                    paddedmsghash= bytes(messages.defunct_hash_message(text=msg)).hex() #sha256(paddedmsgbytes).hexdigest()
+                    paddedmsghash= bytes(eth_messages.defunct_hash_message(text=msg)).hex() #paddedmsghash= bytes(messages.defunct_hash_message(text=msg)).hex() #sha256(paddedmsgbytes).hexdigest()
                     Logger.info("Msg hash1: "+hash)
                     Logger.info("Msg hash2: "+paddedmsghash)
                     txt= "Request to sign "+ altcoin +" message:\n"+msg+"\n"
@@ -511,7 +515,8 @@ class Satochip(TabbedPanel):
                     hash= message['hash']
                     txbytes= bytes.fromhex(tx)
                     tx_hash = keccak(txbytes).hex()
-                    txrlp= rlp.decode(txbytes, SpuriousDragonTransaction)
+                    #txrlp= rlp.decode(txbytes, SpuriousDragonTransaction)
+                    txrlp= rlp.decode(txbytes, eth_transactions.Transaction)
                     tx_nonce= txrlp.nonce
                     tx_gas= txrlp.gas
                     tx_gas_price=txrlp.gas_price

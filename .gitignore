@@ -11,39 +11,18 @@ requests/
 urllib3/
 
 # python modules for ethereum
-attrdict/
-blake2b/
-cached_property/
-Crypto
 cytoolz/
-eth/
-eth_abi/
-eth_account/
-eth_bloom/
 eth_hash/
-eth_keyfile/
-eth_keys/
-eth_rlp/
 eth_typing/
 eth_utils/
 hexbytes/
-mypy_extensions/
-parsimonious/
-pycryptodome/
-pyethash/
-py_ecc/
-py_evm/
 rlp/
-six/
 tlz/
 toolz/
-trie/
 
 # python module files
-cached_property.py
-mypy_extensions.py
+sha3.py
 pbkdf2.py
-six.py
 *.so
 
 # ethereum chains id list

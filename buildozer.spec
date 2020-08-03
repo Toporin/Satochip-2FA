@@ -47,7 +47,9 @@ source.exclude_patterns = *.dist-info
 # v0.11: same as v0.10 but for 64-bit platforms
 # v0.12: Patch message signing for Litecoin (and other alts) on 32-bit platforms
 # v0.13: same as v0.12 but for 64-bit platforms
-version = 0.13
+# v0.14: add support for Ethereum 
+# v0.15: same as v0.14 but for 64-bit platforms
+version = 0.14
 
 # (str) The Android arch to build for, choices: armeabi-v7a, arm64-v8a, x86
 # 32bit platform (even version number)
@@ -62,8 +64,8 @@ android.arch = armeabi-v7a
 # (list) Application requirements
 # comma separated e.g. requirements = sqlite3,kivy
 #requirements = python3, kivy, android, pyjnius
-requirements = python3, kivy, android, plyer, openssl
-
+requirements = python3, kivy, android, plyer, openssl, pysha3        
+	
 # (str) Custom source folders for requirements
 # Sets custom source for any requirements with recipes
 # requirements.source.kivy = ../../kivy
@@ -116,7 +118,8 @@ fullscreen = 0
 android.permissions = INTERNET, CAMERA
 
 # (int) Target Android API, should be as high as possible.
-android.api = 28
+#TODO: upgrade to 29 - https://developer.android.com/distribute/best-practices/develop/target-sdk.html
+android.api = 28 
 
 # (int) Minimum API your APK will support.
 android.minapi = 21
@@ -125,7 +128,9 @@ android.minapi = 21
 #android.sdk = 24
 
 # (str) Android NDK version to use
-android.ndk = 17c
+android.ndk = 19c
+#android.ndk = 21d
+#android.ndk = 17c
 
 # (int) Android NDK API to use. This is the minimum API your app will support, it should usually match android.minapi.
 android.ndk_api = 21

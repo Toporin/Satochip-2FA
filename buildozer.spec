@@ -49,7 +49,9 @@ source.exclude_patterns = *.dist-info
 # v0.13: same as v0.12 but for 64-bit platforms
 # v0.14: add support for Ethereum 
 # v0.15: same as v0.14 but for 64-bit platforms
-version = 0.14
+# v0.16: add support for SLP tokens
+# v0.17: same as v0.16 but for 64-bit platforms
+version = 0.16
 
 # (str) The Android arch to build for, choices: armeabi-v7a, arm64-v8a, x86
 # 32bit platform (even version number)
@@ -119,7 +121,7 @@ android.permissions = INTERNET, CAMERA
 
 # (int) Target Android API, should be as high as possible.
 #TODO: upgrade to 29 - https://developer.android.com/distribute/best-practices/develop/target-sdk.html
-android.api = 28 
+android.api = 29 
 
 # (int) Minimum API your APK will support.
 android.minapi = 21

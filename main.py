@@ -91,7 +91,7 @@ server = ServerProxy('https://cosigner.electrum.org/', allow_none=True, context=
 # # /end timeout= Workarounds
 # server = TimeoutServerProxy('http://sync.imaginary.cash:8081', allow_none=True,  timeout = 2.0)
 
-DEBUG=True
+DEBUG=False #True
 DEBUG_SECRET_2FA= "00"*20  #b'\0'*20
 APPROVE_TX="Approve tx!"
 REJECT_TX="Reject tx!"
@@ -362,8 +362,9 @@ class Satochip(TabbedPanel):
                         
                         nb_outs= outparser.txCurrentOutput
                         Logger.debug("Satochip: nbrOutputs: "+str(nb_outs))
-                        txt+="nb_outputs: "+str(nb_outs) + "\n"
-                        txt+="outputs:\n"
+                        #txt+="nb_outputs: "+str(nb_outs) + "\n"
+                        #txt+="outputs:\n"
+                        txt+="outputs ("+ str(nb_outs) +"):\n"
                         amnt_out=0
                         for i in range(nb_outs):
                             amnt= outparser.outAmounts[i]  
@@ -383,8 +384,15 @@ class Satochip(TabbedPanel):
                                 hash= bytes.fromhex(script[4:])
                                 addr= coin.hash_to_segwit_addr(hash)
                             elif script.startswith( '6a' ): # op_return data script  
-                                addr= "DATA: "+bytes.fromhex(script[6:]).decode('utf-8')
-                                is_data_script=True                            
+                                if script.startswith( '6a04534c5000' ): # SLP token
+                                    try:
+                                        addr= self.parse_slp_script(script)
+                                    except Exception as ex:
+                                        addr= 'Error during SLP script parsing! '
+                                        Logger.warning("Error during SLP script parsing: "+str(ex))
+                                else:
+                                    addr= "DATA: "+  bytes.fromhex(script[6:]).decode('utf-8', errors='backslashreplace') # errors='ignore', 'backslashreplace', 'replace'
+                                is_data_script= True
                             else: 
                                 addr= "unsupported script:"+script+"\n"
                                 
@@ -415,8 +423,9 @@ class Satochip(TabbedPanel):
                         amount_in=0
                         ins= pre_tx_dic['ins']
                         nb_ins= len(ins)
-                        txt+="nb_inputs: "+str(nb_ins) + "\n"
-                        txt+="inputs:\n"
+                        #txt+="nb_inputs: "+str(nb_ins) + "\n"
+                        #txt+="inputs:\n"
+                        txt+="inputs ("+ str(nb_ins) +"):\n"
                         for i in ins:
                             script= i['script'].hex()
                             Logger.debug("Satochip: input script: "+script)
@@ -471,8 +480,9 @@ class Satochip(TabbedPanel):
                         amount_out=0
                         outs= pre_tx_dic['outs']
                         nb_outs= len(outs)
-                        txt+="nb_outputs: "+str(nb_outs) + "\n"
-                        txt+="outputs:\n"
+                        #txt+="nb_outputs: "+str(nb_outs) + "\n"
+                        #txt+="outputs:\n"
+                        txt+="outputs ("+ str(nb_outs) +"):\n"
                         for o in outs:
                             val= (o['value'])
                             script= o['script'].hex()
@@ -610,7 +620,146 @@ class Satochip(TabbedPanel):
             
         self.btn_approve_qr_disabled=True
         
+    def parse_slp_script(self, script):
+        ''' Basic script parsing for SLP tokens
+           
+           See https://github.com/simpleledger/slp-specifications/blob/master/slp-token-type-1.md#formatting 
+           
+           keywords arg:
+                script: hex script to parse
+           returns: 
+                a human-readable description of the SLP script
+        '''
+        dic_token_type={1:'token', 2:'security token', 3:'voting token', 4:'ticketing token'}
+        txt=''
+        offset=0
+        script_size= len(script)
         
+        def get_array_size(script, offset):
+            array_size= int( script[offset:(offset+2)], 16)
+            if (array_size>0 and array_size<76):
+                new_offset= offset+2
+            elif (array_size== 0x4c):
+                array_size= int( script[(offset+2):(offset+4)], 16)
+                new_offset= offset+4
+            elif  (array_size== 0x4d):
+                array_size= int( script[(offset+2):(offset+4)], 16) +256*int( script[(offset+4):(offset+6)], 16)
+                new_offset= offset+6
+            elif  (array_size== 0x4e):
+                array_size= ( int( script[(offset+2):(offset+4)], 16) +
+                                    int( script[(offset+4):(offset+6)], 16)*256 + 
+                                    int( script[(offset+6):(offset+8)], 16)*65536 + 
+                                    int( script[(offset+8):(offset+10)], 16)*16777216 )
+                new_offset= offset+10
+            else: 
+                raise Exception(f'Error during SLP script parsing: bad opcode {hex(array_size)} !')
+            return (array_size, new_offset)
+            
+        def get_array(script, offset, size):
+            array= script[offset:(offset+2*size)]
+            new_offset= offset+2*size
+            return (array, new_offset)
+        
+        if script.startswith( '6a04534c5000' ):
+            lokad_id= "04534c5000"
+            offset+= 12
+            token_type_size, offset = get_array_size(script, offset)
+            token_type, offset= get_array(script, offset, token_type_size)
+            token_type= int(token_type, 16)
+            token_type_str= dic_token_type.get(token_type, 'unknown_type token')
+            transaction_type_size, offset = get_array_size(script, offset) 
+            transaction_type, offset= get_array(script, offset, transaction_type_size)
+            transaction_type_str= bytes.fromhex(transaction_type).decode('utf-8', 'backslashreplace')
+            txt+= transaction_type_str + ' SLP '  + token_type_str
+            
+            if (transaction_type=='47454e45534953'): # GENESIS
+                token_ticker_size, offset = get_array_size(script, offset)
+                token_ticker, offset= get_array(script, offset, token_ticker_size)
+                token_ticker_str=  bytes.fromhex(token_ticker).decode('utf-8', 'backslashreplace')
+                txt+= '\n' + 16*' ' + ' with ticker: ' + token_ticker_str
+                token_name_size, offset = get_array_size(script, offset)
+                token_name, offset= get_array(script, offset, token_name_size)
+                token_name_str= bytes.fromhex(token_name).decode('utf-8', 'backslashreplace')
+                txt+= '\n' + 16*' ' + ' with name: ' + token_name_str 
+                token_document_url_size, offset = get_array_size(script, offset)
+                token_document_url, offset= get_array(script, offset, token_document_url_size)
+                token_document_hash_size, offset = get_array_size(script, offset)
+                if (token_document_hash_size==32):
+                    token_document_hash, offset= get_array(script, offset, token_document_hash_size)
+                    txt+= '\n' + 16*' ' + ' with doc hash: ' + token_document_hash[0:16] + '...' + token_document_hash[-16:]
+                elif (token_document_hash_size==0):
+                    pass
+                else:
+                    return 'Error during SLP script parsing: bad token_document_hash_size!'
+                decimals_size, offset = get_array_size(script, offset)#= int( script[offset:(offset+2)], 16) ; 
+                decimals, offset= get_array(script, offset, decimals_size)
+                decimals=  int( decimals, 16) 
+                txt+= '\n' + 16*' ' + ' with decimals: ' + str(decimals)
+                mint_baton_vout_size, offset = get_array_size(script, offset)
+                if (mint_baton_vout_size==1):
+                    mint_baton_vout, offset= get_array(script, offset, mint_baton_vout_size)
+                    mint_baton_vout= int( mint_baton_vout, 16) 
+                    txt+= '\n' + 16*' ' + ' with unique issuance: ' + 'NO'
+                elif (mint_baton_vout_size==0):
+                    txt+= '\n' + 16*' ' + ' with unique issuance: ' + 'YES'
+                else:
+                    return 'Error during SLP script parsing: bad mint_baton_vout_size!'
+                initial_token_mint_quantity_size, offset = get_array_size(script, offset)
+                initial_token_mint_quantity, offset= get_array(script, offset, initial_token_mint_quantity_size)
+                initial_token_mint_quantity= int( initial_token_mint_quantity, 16) 
+                txt+= '\n' + 16*' ' + ' with initial issuance: ' + str(initial_token_mint_quantity/(10**decimals)) + 16*' '
+                txt+= '\n' + 16*' ' + ' with ' # for the spent: value
+                
+            elif (transaction_type=='53454e44'):  #SEND
+                token_id_size, offset = get_array_size(script, offset)
+                if (token_id_size!=32):
+                    return 'Error during SLP script parsing: bad ID size!'
+                token_id, offset= get_array(script, offset, token_id_size)
+                txt+= '\n' + 16*' ' + 'with ID: ' + token_id[0:16] + '...' + token_id[-16:]
+                while (offset<script_size):
+                    amount_size, offset = get_array_size(script, offset)
+                    if (amount_size!=8):
+                        return f'Error during SLP script parsing: bad amount size ({amount_size})!'
+                    amount, offset = get_array(script, offset, amount_size)
+                    amount= int(amount, 16) 
+                    txt+= '\n' + 16*' ' + 'with amount: ' + str(amount) + 16*' '
+                txt+= '\n' + 16*' ' + 'with ' # for the spent: value
+            
+            elif (transaction_type== '4d494e54'): # MINT
+                token_id_size, offset = get_array_size(script, offset)
+                if (token_id_size!=32):
+                    return 'Error during SLP script parsing: bad ID size!'
+                token_id, offset = get_array(script, offset, token_id_size)
+                txt+= '\n' + 16*' ' + ' with ID: ' + token_id[0:16] + '...' + token_id[-16:]
+                mint_baton_vout_size, offset = get_array_size(script, offset) 
+                if (mint_baton_vout_size==1):
+                    mint_baton_vout, offset = get_array(script, offset, mint_baton_vout_size)
+                    mint_baton_vout= int( mint_baton_vout, 16) 
+                    txt+= '\n' + 16*' ' + ' with future issuance allowed: ' + 'YES'
+                elif (mint_baton_vout_size==0):
+                    txt+= '\n' + 16*' ' + ' with future issuance allowed: ' + 'NO'
+                else:
+                    return f'Error during SLP script parsing: bad mint_baton_vout_size {mint_baton_vout_size}!'
+                additional_token_quantity_size, offset = get_array_size(script, offset) 
+                additional_token_quantity, offset = get_array(script, offset, additional_token_quantity_size)
+                additional_token_quantity=  int( additional_token_quantity, 16) 
+                txt+= '\n' + 16*' ' + ' with token issuance: ' + str(additional_token_quantity) + 16*' '
+                txt+= '\n' + 16*' ' + ' with ' # for the spent: value
+                
+            elif (transaction_type== '434f4d4d4954'): # COMMIT
+                token_id_size, offset = get_array_size(script, offset) 
+                token_id, offset = get_array(script, offset, token_id_size)
+                txt+= '\n' + 16*' ' + ' with ID: ' + token_id[0:16] + '...' + token_id[-16:]
+                # todo: parse rest of data
+                
+            else:
+                txt= 'unknown tx type: ' + transaction_type_str + ' SLP '  + token_type_str
+            
+        else:
+            txt+= 'Error during parsing: bad SLP script!'
+            
+        return txt
+    
                                    
 class TestApp(App):
     def build(self):

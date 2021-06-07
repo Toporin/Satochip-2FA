@@ -43,6 +43,8 @@ import requests
 import ssl
 import json
 import base64
+import threading
+import queue
 from cryptos import transaction, main #deserialize
 from cryptos.coins import Bitcoin, BitcoinCash, Litecoin
 from cryptos.main import num_to_var_int
@@ -72,8 +74,16 @@ context = ssl.SSLContext()
 context.verify_mode =  ssl.CERT_REQUIRED
 context.check_hostname = True
 context.load_verify_locations(ca_path)
-server = ServerProxy('https://cosigner.electrum.org/', allow_none=True, context=context)
+#server = ServerProxy('https://cosigner.electrum.org/', allow_none=True, context=context)
+server = ServerProxy('https://cosigner.satochip.io:81/', allow_none=True, context=context)
+#server = ServerProxy('http://sync.imaginary.cash:8081', allow_none=True)
 
+q = queue.Queue()
+
+def get_message(keyhash, q):
+    message = server.get(keyhash)
+    q.put(message)
+    
 # # xmlrpc server for bcash
 # from xmlrpc.client import ServerProxy, Transport
 # import http.client 
@@ -226,12 +236,24 @@ class Satochip(TabbedPanel):
             # if keyhash in self.listener.received:
                 # continue
             try:
-                message = server.get(keyhash)
+                #message = server.get(keyhash) # hang if server timeout!
+                t = threading.Thread(target=get_message, args = (keyhash,q))
+                t.daemon = True
+                t.start()
+                try:
+                    message= q.get(block=True, timeout=1) # block max 1s
+                    t.join() # stop thread
+                except queue.Empty as ex:
+                    self.display = "Error: server timeout! \nIf this persists, select another server in settings "
+                    message= None
+                    print("Satochip nb threads: ", threading.active_count())
+                    print("Satochip thread alive?: ", t.is_alive())
+                
             except Exception as e:
                 self.display = "Error: cannot contact server:"+str(e)
                 Logger.warning("Satochip: cannot contact server: "+str(e))
                 break
-            if message:
+            if message is not None:
                 self.listener.received.add(keyhash)
                 label= self.myfactors.datastore.get(keyhash)['label_2FA']
                 Logger.debug("Satochip: Received challenge for: "+ keyhash)

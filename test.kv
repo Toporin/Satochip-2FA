@@ -90,9 +90,18 @@
     
     TabbedPanelItem:
         text: 'Logs'
-        #ScrollView:
-        RecycleView:
-            Label:
-                size_hint: None, None    
-                size: self.texture_size
-                text: root.label_logs
+        ScrollView:
+			do_scroll_x: True
+			do_scroll_y: True
+			Label:
+				size_hint_y: None
+				height: self.texture_size[1]
+				text_size: self.width, None
+				padding: 10, 10
+				text: root.label_logs #'really some amazing text\n' * 100
+					
+        #RecycleView:
+            #Label:
+                #size_hint: None, None    
+                #size: self.texture_size
+                #text: root.label_logs

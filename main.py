@@ -24,7 +24,8 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.tabbedpanel import TabbedPanel
 from kivy.uix.popup import Popup
 from kivy.uix.textinput import TextInput
-from kivy.properties import StringProperty, BooleanProperty, ObjectProperty
+from kivy.uix.scrollview import ScrollView
+from kivy.properties import StringProperty, BooleanProperty, ObjectProperty, ListProperty
 from kivy.clock import Clock
 from kivy.utils import platform
 from kivy.storage.jsonstore import JsonStore
@@ -54,11 +55,6 @@ from xmlrpc.client import ServerProxy
 
 #ethereum utils
 try: 
-    #from eth_keys import keys
-    #from eth_keys import KeyAPI
-    #from eth_keys.backends import NativeECCBackend
-    #from eth_account import messages
-    #from eth_messages import defunct_hash_message
     from eth_utils import keccak
     import rlp
     import eth_messages
@@ -67,7 +63,6 @@ except Exception as ex:
     Logger.warning("Exception during ethereum package import: "+str(ex))                   
             
 from TxParser import TxParser
-#import segwit_addr
 
 DEBUG=False #True
 DEBUG_SECRET_2FA= "00"*20  #b'\0'*20
@@ -77,52 +72,57 @@ LOG_SEP="-"*60 + "\n"
 BLOCKSIZE= 16
 POLLING_INTERVAL= 5.0
 
+if DEBUG: 
+    Logger.setLevel(logging.DEBUG)
+else: 
+    Logger.setLevel(logging.INFO)
+    
 ca_path = certifi.where()
 #print("CA Path: "+ca_path)
 context = ssl.SSLContext()
 context.verify_mode =  ssl.CERT_REQUIRED
 context.check_hostname = True
 context.load_verify_locations(ca_path)
-#server = ServerProxy('https://cosigner.electrum.org/', allow_none=True, context=context)
-server = ServerProxy('https://cosigner.satochip.io/', allow_none=True, context=context)
-#server = ServerProxy('http://sync.imaginary.cash:8081', allow_none=True)
 
-# debug server
-#server = ServerProxy('https://cosigner.satochip.io:81/', allow_none=True, context=context) #wrong port generate timeout errors
-#server = ServerProxy('https://wrongcosigner.satochip.io/', allow_none=True, context=context) # non-existant server
-#server = ServerProxy('https://www.google.com/', allow_none=True, context=context) # wrong server 
+SERVER_LIST= [
+    'https://cosigner.electrum.org',
+    'https://cosigner.satochip.io', 
+    'http://sync.imaginary.cash:8081', 
+]
+if DEBUG: # debug server
+    SERVER_LIST.append('https://cosigner.satochip.io:81')  #wrong port generate timeout errors
+    SERVER_LIST.append('https://wrongcosigner.satochip.io')   # non-existant server
+    SERVER_LIST.append('https://www.google.com') # wrong server 
+    
+#server_default= SERVER_LIST[0] #default
 
-q = queue.Queue()
+myqueue = queue.Queue()
 myevent = threading.Event()
 myevent.clear()
 
-def get_message_from_server(obj, q, myevent):
+def get_message_from_server(obj, myqueue, myevent):
     #print("In get_message_from_server")
     while True:
         if not myevent.isSet():
             for keyhash in obj.myfactors.datastore.keys():
                 try:
-                    message = server.get(keyhash)
+                    #print("In get_message_from_server server: ", myserver.server)
+                    message = myserver.server.get(keyhash)
                     if message is not None:
                         print("In get_message_from_server keyhash: ", keyhash)
                         print("In get_message_from_server message: ", message)
-                        q.put( (keyhash,message) )
+                        myqueue.put( (keyhash,message) )
                         myevent.set()
                 except TimeoutError as e:
                     Logger.warning("Satochip: server timeout: "+str(e))
-                    q.put( (keyhash,"ERR:TIMEOUT") )
+                    myqueue.put( (keyhash,"ERR:TIMEOUT") )
                     myevent.set()
                 except Exception as e:
                     Logger.warning("Satochip: cannot contact server: "+str(e))
-                    q.put( (keyhash,"ERR:CONNECT") )
+                    myqueue.put( (keyhash,"ERR:CONNECT") )
                     myevent.set()
         sleep(POLLING_INTERVAL)
             
-if DEBUG: 
-    Logger.setLevel(logging.DEBUG)
-else: 
-    Logger.setLevel(logging.INFO)
-
 class Listener():
     def __init__(self, parent):
         self.parent = parent
@@ -130,7 +130,8 @@ class Listener():
         self.postbox = []
 
     def clear(self, keyhash):
-        server.delete(keyhash)
+        print('In clear() myserver.server: ', myserver.server)
+        myserver.server.delete(keyhash)
         self.received.remove(keyhash)
         myevent.clear() # 
 
@@ -156,6 +157,46 @@ class Factors():
     def remove_factor(self, id):
         if self.datastore.exists(id):
             self.datastore.delete(id)
+
+class Servers():
+    def __init__(self):
+        self.server_default= None
+        self.datastore = JsonStore('servers.json')
+        # add SERVER_LIST if updated
+        for item in SERVER_LIST:
+            if item not in self.datastore:
+                self.add_new_server(item, default=False)
+        # get default server
+        for url in self.datastore.keys():
+            print('self.datastore[url]= ', self.datastore[url])
+            if self.datastore[url]['default']:
+                self.server_default= url
+                break
+        # if no default_server, take first of list
+        if self.server_default is None:
+            self.server_default= SERVER_LIST[0]
+            self.datastore[self.server_default]['default']= True
+            
+    def add_new_server(self, url, default=False):
+        self.datastore.put(url, default=default)
+        Logger.info("Satochip: \nAdded new server on "+ str(datetime.now()) + " with url: "+ url)
+    
+    def load_list_server(self):
+        myserver_list= []
+        for url in self.datastore.keys():
+            myserver_list.append(url)
+        return myserver_list
+myservers= Servers()
+
+class Server():
+    def __init__(self, url):
+        self.server= ServerProxy(url, allow_none=True, context=context)
+        self.url= url
+        
+    def set_url(self,url):
+        self.server= ServerProxy(url, allow_none=True, context=context)
+        self.url= url       
+myserver= Server(myservers.server_default)    
     
 class OkButton(Button):
     btn_approve_tx= StringProperty(APPROVE_TX) 
@@ -173,6 +214,8 @@ class Satochip(TabbedPanel):
     label_logs= StringProperty('Contains the tx history...\n'+LOG_SEP)
     label_2FA_label= StringProperty('Enter 2FA description here')
     label_2FA_stored= StringProperty('')
+    myserver_list= ListProperty([])
+    myserver_default= StringProperty('')
     
     def __init__(self, **kwargs):
         super(Satochip, self).__init__(**kwargs)
@@ -182,6 +225,10 @@ class Satochip(TabbedPanel):
             self.myfactors.add_new_factor(DEBUG_SECRET_2FA, "Debug-2FA")
         self.load_list_2FA()
         
+        # lists of servers to choose from
+        self.myserver_list= myservers.load_list_server() 
+        self.myserver_default= myservers.server_default
+        
         #load log history
         for record in  reversed(LoggerHistory.history):
             print(str(record))
@@ -189,6 +236,14 @@ class Satochip(TabbedPanel):
                 msg= record.getMessage()
                 if msg.startswith("[Satochip"):
                     self.label_logs+=msg.replace("[Satochip    ] ","",1) +"\n"+LOG_SEP                     
+    
+    def on_server_spinner(self, new_server):
+        Logger.info("Satochip: select new server: "+new_server)
+        self.myserver_default= new_server
+        old_server= myserver.url
+        myservers.datastore.put(new_server, default=True)
+        myservers.datastore.put(old_server, default=False)
+        myserver.set_url(new_server)
         
     def load_list_2FA(self):
         self.label_2FA_stored="List of stored 2FA:\n\n"
@@ -231,7 +286,7 @@ class Satochip(TabbedPanel):
         
         # send reply to server
         Logger.debug("Satochip: Sent response to: "+replyhash)
-        server.put(replyhash, reply_encrypt)
+        myserver.server.put(replyhash, reply_encrypt)
         self.listener.clear(keyhash)
         self.btn_disabled= True
         
@@ -244,11 +299,9 @@ class Satochip(TabbedPanel):
         # check for message from the polling thread
         print("Satochip update...")
         
-        #for i in range(1): #for keyhash in self.myfactors.datastore.keys():
-        #message= None
         if myevent.isSet(): # we have a message waiting!
             try:
-                (keyhash, message)= q.get(block=False) # non-blocking
+                (keyhash, message)= myqueue.get(block=False) # non-blocking
             except queue.Empty as ex: # should not happen!
                 #message= None
                 return
@@ -603,7 +656,7 @@ class Satochip(TabbedPanel):
                 
                 self.btn_disabled= False
                 return
-    
+        
     def scan_qr(self, on_complete):
         if platform != 'android':
             print("Qr code scanning is not supported!")
@@ -797,7 +850,7 @@ class TestApp(App):
         
         # thread for polling server
         Logger.info("Starting polling thread")
-        t = threading.Thread( target=get_message_from_server, args = (root, q, myevent) )
+        t = threading.Thread( target=get_message_from_server, args = (root, myqueue, myevent) )
         t.daemon = True
         t.start()
         

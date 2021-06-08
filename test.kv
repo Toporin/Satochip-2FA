@@ -68,9 +68,25 @@
                     disabled:root.btn_approve_qr_disabled
     
     TabbedPanelItem:
-        text: 'Manage 2FA'
-        Label:
-            text: root.label_2FA_stored #'Add or remove 2FA'
+        text: 'Settings'
+		BoxLayout:
+			orientation: "vertical"
+			Label:
+				size_hint_y: 0.8
+				text: root.label_2FA_stored #'Add or remove 2FA'
+			BoxLayout:
+				orientation: "vertical"
+				Label:
+					size_hint_y: 0.1
+					text: "Select cosigner server from this list:"
+				Spinner:
+					size_hint_y: 0.1
+					#size_hint: None, None
+					#size: 100, 44
+					#pos_hint: {'center': (.5, .5)}
+					text: root.myserver_default
+					values: root.myserver_list
+					on_text: root.on_server_spinner(self.text)
     
     TabbedPanelItem:
         text: 'Logs'

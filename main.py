@@ -244,26 +244,23 @@ class Satochip(TabbedPanel):
         # check for message from the polling thread
         print("Satochip update...")
         
-        for i in range(1): #for keyhash in self.myfactors.datastore.keys():
-            message= None
-            if myevent.isSet(): # we have a message waiting!
-                try:
-                    (keyhash, message)= q.get(block=False) # non-blocking
-                except queue.Empty as ex: # should not happen!
-                    #self.display = "Error: server timeout! \nIf this persists, select another server in settings "
-                    message= None
-                
-                if message=="ERR:TIMEOUT":
-                    self.display = "Error: server timeout! \nIf this persists, select another server in settings."
-                    message= None
-                    myevent.clear()
-                elif message == "ERR:CONNECT":
-                    self.display = "Error: cannot connect to server! \nIf this persists, select another server in settings."
-                    message= None
-                    myevent.clear()
-                    
-                    
-            if message is not None:
+        #for i in range(1): #for keyhash in self.myfactors.datastore.keys():
+        #message= None
+        if myevent.isSet(): # we have a message waiting!
+            try:
+                (keyhash, message)= q.get(block=False) # non-blocking
+            except queue.Empty as ex: # should not happen!
+                #message= None
+                return
+            if message=="ERR:TIMEOUT":
+                self.display = "Error: server timeout! \nIf this persists, select another server in settings."
+                message= None
+                myevent.clear()
+            elif message == "ERR:CONNECT":
+                self.display = "Error: cannot connect to server! \nIf this persists, select another server in settings."
+                message= None
+                myevent.clear()  
+            else:
                 self.listener.received.add(keyhash)
                 label= self.myfactors.datastore.get(keyhash)['label_2FA']
                 Logger.debug("Satochip: Received challenge for: "+ keyhash)
@@ -448,7 +445,7 @@ class Satochip(TabbedPanel):
                             Logger.warning("Exception during (non-segwit) tx parsing: "+str(e))
                             txt="Error parsing tx!"
                             self.listener.clear(keyhash)
-                            break
+                            return
                         Logger.debug("Satochip: pre_tx_dic: "+str(pre_tx_dic))
                         
                         # inputs 
@@ -605,7 +602,7 @@ class Satochip(TabbedPanel):
                 Logger.info("Satochip: \nNew challenge: "+challenge+"\nReceived on "+str(datetime.now())+":\n"+txt)
                 
                 self.btn_disabled= False
-                break
+                return
     
     def scan_qr(self, on_complete):
         if platform != 'android':

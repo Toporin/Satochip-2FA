@@ -209,7 +209,7 @@ class Satochip(TabbedPanel):
     btn_disabled= BooleanProperty(True)
     btn_approve_qr_disabled= BooleanProperty(True)
     
-    display = StringProperty('Waiting tx...')
+    display = StringProperty('Waiting for request...')
     label_qr_data= StringProperty("Click on 'scan' button to scan a new QR code...")
     label_logs= StringProperty('Contains the tx history...\n'+LOG_SEP)
     label_2FA_label= StringProperty('Enter 2FA description here')
@@ -244,6 +244,8 @@ class Satochip(TabbedPanel):
         myservers.datastore.put(new_server, default=True)
         myservers.datastore.put(old_server, default=False)
         myserver.set_url(new_server)
+        self.display = 'Waiting for request...'
+        
         
     def load_list_2FA(self):
         self.label_2FA_stored="List of stored 2FA:\n\n"
@@ -849,7 +851,7 @@ class TestApp(App):
         root= Satochip()
         
         # thread for polling server
-        Logger.info("Starting polling thread")
+        print("Starting polling thread")
         t = threading.Thread( target=get_message_from_server, args = (root, myqueue, myevent) )
         t.daemon = True
         t.start()

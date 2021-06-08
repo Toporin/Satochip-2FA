@@ -32,6 +32,7 @@ from kivy.logger import Logger
 from kivy.logger import LoggerHistory
 
 from datetime import datetime
+from time import sleep
 import logging
 from os import urandom
 from hashlib import sha1, sha256
@@ -68,6 +69,14 @@ except Exception as ex:
 from TxParser import TxParser
 #import segwit_addr
 
+DEBUG=False #True
+DEBUG_SECRET_2FA= "00"*20  #b'\0'*20
+APPROVE_TX="Approve tx!"
+REJECT_TX="Reject tx!"
+LOG_SEP="-"*60 + "\n"
+BLOCKSIZE= 16
+POLLING_INTERVAL= 5.0
+
 ca_path = certifi.where()
 #print("CA Path: "+ca_path)
 context = ssl.SSLContext()
@@ -75,39 +84,40 @@ context.verify_mode =  ssl.CERT_REQUIRED
 context.check_hostname = True
 context.load_verify_locations(ca_path)
 #server = ServerProxy('https://cosigner.electrum.org/', allow_none=True, context=context)
-server = ServerProxy('https://cosigner.satochip.io:81/', allow_none=True, context=context)
+server = ServerProxy('https://cosigner.satochip.io/', allow_none=True, context=context)
 #server = ServerProxy('http://sync.imaginary.cash:8081', allow_none=True)
 
+# debug server
+#server = ServerProxy('https://cosigner.satochip.io:81/', allow_none=True, context=context) #wrong port generate timeout errors
+#server = ServerProxy('https://wrongcosigner.satochip.io/', allow_none=True, context=context) # non-existant server
+#server = ServerProxy('https://www.google.com/', allow_none=True, context=context) # wrong server 
+
 q = queue.Queue()
+myevent = threading.Event()
+myevent.clear()
 
-def get_message(keyhash, q):
-    message = server.get(keyhash)
-    q.put(message)
-    
-# # xmlrpc server for bcash
-# from xmlrpc.client import ServerProxy, Transport
-# import http.client 
-# # Workarounds to the fact that xmlrpc.client doesn't take a timeout= arg.
-# class TimeoutTransport(Transport):
-    # def __init__(self, timeout=2.0, *l, **kw):
-        # super().__init__(*l, **kw)
-        # self.timeout = timeout
-    # def make_connection(self, host):
-        # return http.client.HTTPConnection(host, timeout=self.timeout)
-# class TimeoutServerProxy(ServerProxy):
-    # def __init__(self, uri, timeout=2.0, *l, **kw):
-        # kw['transport'] = TimeoutTransport(timeout=timeout, use_datetime=kw.get('use_datetime', False))
-        # super().__init__(uri, *l, **kw)
-# # /end timeout= Workarounds
-# server = TimeoutServerProxy('http://sync.imaginary.cash:8081', allow_none=True,  timeout = 2.0)
-
-DEBUG=False #True
-DEBUG_SECRET_2FA= "00"*20  #b'\0'*20
-APPROVE_TX="Approve tx!"
-REJECT_TX="Reject tx!"
-LOG_SEP="-"*60 + "\n"
-BLOCKSIZE= 16
-
+def get_message_from_server(obj, q, myevent):
+    #print("In get_message_from_server")
+    while True:
+        if not myevent.isSet():
+            for keyhash in obj.myfactors.datastore.keys():
+                try:
+                    message = server.get(keyhash)
+                    if message is not None:
+                        print("In get_message_from_server keyhash: ", keyhash)
+                        print("In get_message_from_server message: ", message)
+                        q.put( (keyhash,message) )
+                        myevent.set()
+                except TimeoutError as e:
+                    Logger.warning("Satochip: server timeout: "+str(e))
+                    q.put( (keyhash,"ERR:TIMEOUT") )
+                    myevent.set()
+                except Exception as e:
+                    Logger.warning("Satochip: cannot contact server: "+str(e))
+                    q.put( (keyhash,"ERR:CONNECT") )
+                    myevent.set()
+        sleep(POLLING_INTERVAL)
+            
 if DEBUG: 
     Logger.setLevel(logging.DEBUG)
 else: 
@@ -122,6 +132,7 @@ class Listener():
     def clear(self, keyhash):
         server.delete(keyhash)
         self.received.remove(keyhash)
+        myevent.clear() # 
 
 class Factors():
     def __init__(self):
@@ -226,33 +237,32 @@ class Satochip(TabbedPanel):
         
     
     def update(self, dt):
-        # only one factor at a time
+        # only one request at a time
         if len(self.listener.received)!=0:
             return
          
-        # poll server for each id_2FA
+        # check for message from the polling thread
         print("Satochip update...")
-        for keyhash in self.myfactors.datastore.keys():
-            # if keyhash in self.listener.received:
-                # continue
-            try:
-                #message = server.get(keyhash) # hang if server timeout!
-                t = threading.Thread(target=get_message, args = (keyhash,q))
-                t.daemon = True
-                t.start()
+        
+        for i in range(1): #for keyhash in self.myfactors.datastore.keys():
+            message= None
+            if myevent.isSet(): # we have a message waiting!
                 try:
-                    message= q.get(block=True, timeout=1) # block max 1s
-                    t.join() # stop thread
-                except queue.Empty as ex:
-                    self.display = "Error: server timeout! \nIf this persists, select another server in settings "
+                    (keyhash, message)= q.get(block=False) # non-blocking
+                except queue.Empty as ex: # should not happen!
+                    #self.display = "Error: server timeout! \nIf this persists, select another server in settings "
                     message= None
-                    print("Satochip nb threads: ", threading.active_count())
-                    print("Satochip thread alive?: ", t.is_alive())
                 
-            except Exception as e:
-                self.display = "Error: cannot contact server:"+str(e)
-                Logger.warning("Satochip: cannot contact server: "+str(e))
-                break
+                if message=="ERR:TIMEOUT":
+                    self.display = "Error: server timeout! \nIf this persists, select another server in settings."
+                    message= None
+                    myevent.clear()
+                elif message == "ERR:CONNECT":
+                    self.display = "Error: cannot connect to server! \nIf this persists, select another server in settings."
+                    message= None
+                    myevent.clear()
+                    
+                    
             if message is not None:
                 self.listener.received.add(keyhash)
                 label= self.myfactors.datastore.get(keyhash)['label_2FA']
@@ -787,7 +797,14 @@ class TestApp(App):
     def build(self):
         self.title = 'Satochip 2-Factor Authentication App'
         root= Satochip()
-        Clock.schedule_interval(root.update, 3.0)
+        
+        # thread for polling server
+        Logger.info("Starting polling thread")
+        t = threading.Thread( target=get_message_from_server, args = (root, q, myevent) )
+        t.daemon = True
+        t.start()
+        
+        Clock.schedule_interval(root.update, POLLING_INTERVAL)
         return root
 
 # on platform where qr code scanning is not (yet) supported, it is possible to copy/paste the 2FA key via a popup windows...

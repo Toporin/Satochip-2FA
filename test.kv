@@ -69,11 +69,25 @@
     
     TabbedPanelItem:
         text: 'Settings'
-		BoxLayout:
-			orientation: "vertical"
-			Label:
-				size_hint_y: 0.8
-				text: root.label_2FA_stored #'Add or remove 2FA'
+		#BoxLayout:
+		#orientation: "vertical"
+			#Label:
+				#size_hint_y: 0.8
+				#text: root.label_2FA_stored #'Add or remove 2FA'
+		
+		GridLayout:
+			cols: 1
+			rows: 2
+			ScrollView:
+				do_scroll_x: True
+				do_scroll_y: True
+				Label:
+					#size_hint_y: 0.8
+					#height: self.texture_size[1]
+					#text_size: self.width, None
+					#padding: 10, 10
+					text:root.label_2FA_stored #'really some amazing text\n' * 100 # 
+			
 			BoxLayout:
 				orientation: "vertical"
 				Label:

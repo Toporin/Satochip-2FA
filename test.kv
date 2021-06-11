@@ -7,27 +7,6 @@
 <CancelButton>:
     text: root.btn_reject_tx
 
-#class Satochip(GridLayout):
-# <Satochip>:    
-    # rows: 2
-    # cols: 1
-            
-    # Label:
-        # font_size: 15 
-        # #center_x: root.width / 4
-        # #top: root.top - 50
-        # text: root.display
-        
-    # BoxLayout:
-        # orientation: "horizontal"
-        # OkButton:
-            # on_release: root.approve_tx(self)
-            # disabled:root.btn_disabled
-            
-        # CancelButton:
-            # on_release: root.approve_tx(self)
-            # disabled:root.btn_disabled
-
 #class Satochip(TabbedPanel):            
 <Satochip>:  
     size_hint: 1, 1
@@ -89,15 +68,54 @@
                     disabled:root.btn_approve_qr_disabled
     
     TabbedPanelItem:
-        text: 'Manage 2FA'
-        Label:
-            text: root.label_2FA_stored #'Add or remove 2FA'
+        text: 'Settings'
+		#BoxLayout:
+		#orientation: "vertical"
+			#Label:
+				#size_hint_y: 0.8
+				#text: root.label_2FA_stored #'Add or remove 2FA'
+		
+		GridLayout:
+			cols: 1
+			rows: 2
+			ScrollView:
+				do_scroll_x: True
+				do_scroll_y: True
+				Label:
+					#size_hint_y: 0.8
+					#height: self.texture_size[1]
+					#text_size: self.width, None
+					#padding: 10, 10
+					text:root.label_2FA_stored #'really some amazing text\n' * 100 # 
+			
+			BoxLayout:
+				orientation: "vertical"
+				Label:
+					size_hint_y: 0.1
+					text: "Select cosigner server from this list:"
+				Spinner:
+					size_hint_y: 0.1
+					#size_hint: None, None
+					#size: 100, 44
+					#pos_hint: {'center': (.5, .5)}
+					text: root.myserver_default
+					values: root.myserver_list
+					on_text: root.on_server_spinner(self.text)
     
     TabbedPanelItem:
         text: 'Logs'
-        #ScrollView:
-        RecycleView:
-            Label:
-                size_hint: None, None    
-                size: self.texture_size
-                text: root.label_logs
+        ScrollView:
+			do_scroll_x: True
+			do_scroll_y: True
+			Label:
+				size_hint_y: None
+				height: self.texture_size[1]
+				text_size: self.width, None
+				padding: 10, 10
+				text: root.label_logs #'really some amazing text\n' * 100
+					
+        #RecycleView:
+            #Label:
+                #size_hint: None, None    
+                #size: self.texture_size
+                #text: root.label_logs

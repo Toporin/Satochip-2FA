@@ -19,7 +19,7 @@ source.dir = .
 #source.include_patterns = assets/*,images/*.png
 
 # (list) Source files to exclude (let empty to not exclude anything)
-source.exclude_exts = data.json, logs.txt, requirements.txt, make_packages, .gitignore
+source.exclude_exts = data.json, servers.json, logs.txt, requirements.txt, make_packages, .gitignore
 
 # (list) List of directory to exclude (let empty to not exclude anything)
 source.exclude_dirs = tests, bin, .git, __pycache__
@@ -51,13 +51,15 @@ source.exclude_patterns = *.dist-info
 # v0.15: same as v0.14 but for 64-bit platforms
 # v0.16: add support for SLP tokens
 # v0.17: same as v0.16 but for 64-bit platforms
-version = 0.16
+# v0.18: add threading for cosigner connexions and possibility to select cosigner server
+# v0.19: same as v0.18 but for 64-bit platforms
+version = 0.19
 
 # (str) The Android arch to build for, choices: armeabi-v7a, arm64-v8a, x86
 # 32bit platform (even version number)
-android.arch = armeabi-v7a
+#android.arch = armeabi-v7a
 # 64bit platform (odd version number)
-#android.arch = arm64-v8a
+android.arch = arm64-v8a
 
 # (str) Application versioning (method 2)
 # version.regex = __version__ = ['"](.*)['"]

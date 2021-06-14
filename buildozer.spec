@@ -53,7 +53,9 @@ source.exclude_patterns = *.dist-info
 # v0.17: same as v0.16 but for 64-bit platforms
 # v0.18: add threading for cosigner connexions and possibility to select cosigner server
 # v0.19: same as v0.18 but for 64-bit platforms
-version = 0.19
+# v0.20: patch bug where config settings are erased when app is updated 
+# v0.21: same as v0.20 but for 64-bit platforms
+version = 0.21
 
 # (str) The Android arch to build for, choices: armeabi-v7a, arm64-v8a, x86
 # 32bit platform (even version number)

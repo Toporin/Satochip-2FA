@@ -137,7 +137,7 @@ class Listener():
 
 class Factors():
     def __init__(self):
-        self.datastore = JsonStore('data.json')
+        self.datastore = JsonStore('../data.json')
         
     def add_new_factor(self,secret_2FA, label_2FA):
         mac = hmac.new(bytes.fromhex(secret_2FA), "id_2FA".encode('utf-8'), sha1)
@@ -161,7 +161,8 @@ class Factors():
 class Servers():
     def __init__(self):
         self.server_default= None
-        self.datastore = JsonStore('servers.json')
+        # on Android, stored in: /data/data/org.satochip.satochip2fa.satochip2fa/files/server.json
+        self.datastore = JsonStore('../servers.json') 
         # add SERVER_LIST if updated
         for item in SERVER_LIST:
             if item not in self.datastore:
@@ -235,7 +236,7 @@ class Satochip(TabbedPanel):
             if record.levelno>=20: #INFO
                 msg= record.getMessage()
                 if msg.startswith("[Satochip"):
-                    self.label_logs+=msg.replace("[Satochip    ] ","",1) +"\n"+LOG_SEP                     
+                    self.label_logs+=msg.replace("[Satochip    ] ","",1) +"\n"+LOG_SEP
     
     def on_server_spinner(self, new_server):
         Logger.info("Satochip: select new server: "+new_server)

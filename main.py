@@ -64,7 +64,7 @@ except Exception as ex:
             
 from TxParser import TxParser
 
-DEBUG=False #True
+DEBUG= True
 DEBUG_SECRET_2FA= "00"*20  #b'\0'*20
 APPROVE_TX="Approve tx!"
 REJECT_TX="Reject tx!"
@@ -594,6 +594,15 @@ class Satochip(TabbedPanel):
                 # sign message hash, currently only supports Ethereum
                 elif action== "sign_msg_hash":
                     msg= message['msg']
+                    # if message is in hex-format, convert it to utf8 string
+                    if msg.startswith('0x'):
+                        msg= msg[len('0x'):]
+                        try: 
+                            int(msg, 16) # check if hex
+                            import codecs
+                            msg= codecs.decode(msg, "hex").decode('utf-8')
+                        except Exception as ex:
+                            msg= message['msg']
                     hash= message['hash']
                     altcoin= "Ethereum"
                     
@@ -602,44 +611,60 @@ class Satochip(TabbedPanel):
                     Logger.info("Msg hash2: "+paddedmsghash)
                     txt= "Request to sign "+ altcoin +" message:\n"+msg+"\n"
                     if paddedmsghash!=hash:
-                        txt+= "Warning! inconsistent msg hashes!\n"
-                    challenge= paddedmsghash + 32*"CC"
+                        txt+= "Warning: inconsistent msg hashes! \nYou should reject the request unless you know what you are doing!"
+                    challenge= hash + 32*"CC"
                 
                 elif action== "sign_tx_hash":
                     tx= message['tx']
                     hash= message['hash']
                     txbytes= bytes.fromhex(tx)
-                    tx_hash = keccak(txbytes).hex()
-                    #txrlp= rlp.decode(txbytes, SpuriousDragonTransaction)
+                    #tx_hash = keccak(txbytes).hex() # serialization depends on client, better deserialize and recomputes hash
                     txrlp= rlp.decode(txbytes, eth_transactions.Transaction)
                     tx_nonce= txrlp.nonce
                     tx_gas= txrlp.gas
                     tx_gas_price=txrlp.gas_price
                     tx_to='0x'+txrlp.to.hex()
                     tx_value= txrlp.value 
-                    tx_data= txrlp.data.hex()
-                    tx_chainid= txrlp.v
+                    tx_data='0x'+ txrlp.data.hex()
+                    #tx_chainid= txrlp.v
+                    tx_chainid= message.get('chainId',  txrlp.v) # 
+                    try: 
+                        tx_from= '0x'+message['from']
+                    except Exception as ex:
+                        tx_from= '(not supported)'
                     
-                    chain_file= "./chains/_data/chains/"+str(tx_chainid)+".json"
-                    Logger.info("ChainId file:"+chain_file)
-                    chain_store = JsonStore(chain_file)
-                    tx_coinname= chain_store.get("nativeCurrency")["name"]
-                    tx_coinsymbol= chain_store.get("nativeCurrency")["symbol"]
-                    tx_coindecimals=chain_store.get("nativeCurrency")["decimals"]
+                    # reencode with chainId (EIP155)
+                    tx2= eth_transactions.Transaction(txrlp.nonce, txrlp.gas_price, txrlp.gas, txrlp.to, txrlp.value, txrlp.data, tx_chainid, 0, 0)
+                    txraw= rlp.encode(tx2)
+                    print("txraw: " + txraw.hex())
+                    tx_hash = keccak(txraw).hex()
+                    print("tx_hash: " + tx_hash)
                     
+                    try:
+                        chain_file= "./chains/_data/chains/"+str(tx_chainid)+".json"
+                        Logger.info("ChainId file:"+chain_file)
+                        chain_store = JsonStore(chain_file)
+                        tx_coinname= chain_store.get("nativeCurrency")["name"]
+                        tx_coinsymbol= chain_store.get("nativeCurrency")["symbol"]
+                        tx_coindecimals=chain_store.get("nativeCurrency")["decimals"]
+                    except Exception as ex:
+                        tx_coinname= "(unknown)"
+                        tx_coinsymbol= "(unknown)"
+                        tx_coindecimals= 0
+                        
                     txt="2FA: "+label+"\n" 
                     txt+="Coin: "+tx_coinname+"\n" 
-                    txt+="From: "+"todo"+"\n" 
+                    txt+="From: "+tx_from+"\n"
                     txt+="To: "+tx_to+"\n" 
-                    txt+="Value: "+ str(tx_value/(10**tx_coindecimals)) +tx_coinsymbol+"\n" 
+                    txt+="Value: "+ str(tx_value/(10**tx_coindecimals)) +" " +tx_coinsymbol+"\n" 
                     txt+="Gas: "+str(tx_gas)+"\n" 
                     txt+="Gas price: "+str(tx_gas_price)+"\n"
-                    txt+="Max fee: "+str(tx_gas*tx_gas_price/(10**tx_coindecimals)) +tx_coinsymbol+"\n" 
+                    txt+="Max fee: "+str(tx_gas*tx_gas_price/(10**tx_coindecimals)) +" " +tx_coinsymbol+"\n" 
                     txt+="Data: "+tx_data+"\n" #todo: parse data
                     txt+="Hash: "+tx_hash+"\n" #debug
                     if tx_hash!=hash:
-                        txt+= "Warning! inconsistent tx hashes!\n"
-                    challenge= tx_hash + 32*"CC"
+                        txt+= "Warning! inconsistent tx hashes! \nYou should reject the request unless you know what you are doing!"
+                    challenge= hash + 32*"CC"
                     
                 else: 
                     txt= "Unsupported operation: "+decrypted.decode('ascii')

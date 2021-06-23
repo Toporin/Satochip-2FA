@@ -17,6 +17,9 @@ idna
 cryptos (https://github.com/primal100/pybitcointools)
 
 These modules should be copied into the project's root folder along with the main.py file.
+
+The project also requires the [ethereum-lists/chains](https://github.com/ethereum-lists/chains) repository for supporting EVM-based Chains.
+
 This can be done using the bash file 'make_packages'.
 
 ## Build the app

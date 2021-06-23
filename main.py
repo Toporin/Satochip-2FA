@@ -641,7 +641,7 @@ class Satochip(TabbedPanel):
                     print("tx_hash: " + tx_hash)
                     
                     try:
-                        chain_file= "./chains/_data/chains/"+str(tx_chainid)+".json"
+                        chain_file= "./chains/_data/chains/eip155-"+str(tx_chainid)+".json"
                         Logger.info("ChainId file:"+chain_file)
                         chain_store = JsonStore(chain_file)
                         tx_coinname= chain_store.get("nativeCurrency")["name"]

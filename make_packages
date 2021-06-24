@@ -14,3 +14,6 @@ rm -rf ./tmp
 
 # clone ethereum-lists/chains module from github  
 git clone https://github.com/ethereum-lists/chains.git
+
+# In the chains folder, remove all files & folders except for _data folder:
+find ./chains -mindepth 1 ! -regex '^./chains/_data\(/.*\)?' -delete

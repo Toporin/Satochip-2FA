@@ -55,7 +55,9 @@ source.exclude_patterns = *.dist-info
 # v0.19: same as v0.18 but for 64-bit platforms
 # v0.20: patch bug where config settings are erased when app is updated 
 # v0.21: same as v0.20 but for 64-bit platforms
-version = 0.21
+# v0.22: add support for Metamask & MyEtherWallet (slightly different request format), update chains repo for EVM-based chains
+# v0.23: same as v0.22 but for 64-bit platforms
+version = 0.23
 
 # (str) The Android arch to build for, choices: armeabi-v7a, arm64-v8a, x86
 # 32bit platform (even version number)

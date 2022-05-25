@@ -317,373 +317,613 @@ class Satochip(TabbedPanel):
                 message= None
                 myevent.clear()  
             else:
-                self.listener.received.add(keyhash)
-                label= self.myfactors.datastore.get(keyhash)['label_2FA']
-                Logger.debug("Satochip: Received challenge for: "+ keyhash)
-                Logger.debug("Satochip: Corresponding label: "+ label)
-                Logger.debug("Satochip: Challenge received: "+ message)
-                
-                # decrypt message & remove padding
-                key_2FA= bytes.fromhex(self.myfactors.datastore.get(keyhash)['key_2FA'])
-                message= base64.b64decode(message)
-                iv= message[0:16]
-                ciphertext= message[16:]
-                
-                decrypter = pyaes.Decrypter(pyaes.AESModeOfOperationCBC(key_2FA, iv))
-                decrypted = decrypter.feed(ciphertext)
-                decrypted += decrypter.feed()
-                Logger.debug("Satochip: Challenge decrypted: "+decrypted.decode('ascii'))
-                message= json.loads(decrypted) 
-                if 'action' in message:
-                    action= message['action']
-                else:
-                    action= "sign_tx"
-                
-                if action=="reset_seed":
-                    authentikeyx= message['authentikeyx']
-                    txt= "Request to reset the seed!\nAuthentikey:"+authentikeyx
-                    challenge= authentikeyx + 32*'FF'
-                elif action == "reset_2FA":
-                    txt= "Request to reset 2FA!\nID_2FA:"+keyhash
-                    try:
-                        id_2FA_20b= self.myfactors.datastore.get(keyhash)['id_2FA_20b']
-                    except Exception as ex: # not supported for 2FA created in app version <=0.8/0.9
-                        id_2FA_20b= keyhash 
-                    challenge= id_2FA_20b + 44*'AA'
-                elif action == "sign_msg":
-                    msg= message['msg']
-                    if 'alt' in message:
-                        altcoin= message['alt']
-                        headersize= bytes([ len(altcoin)+17 ])
-                        paddedmsgbytes = headersize + altcoin.encode('utf8') + b" Signed Message:\n" + num_to_var_int(len(msg)) + bytes(msg, 'utf-8')
-                    else:
-                        altcoin= "Bitcoin"
-                        paddedmsgbytes = b"\x18Bitcoin Signed Message:\n" + num_to_var_int(len(msg)) + bytes(msg, 'utf-8')          
-                    txt= "Request to sign "+ altcoin +" message:\n"+msg+"\n"
-                    paddedmsghash= sha256(paddedmsgbytes).hexdigest()
-                    challenge= paddedmsghash + 32*"BB"
-                elif action== "sign_tx":
-                    is_segwit= message['sw']
+                try: 
+                    self.listener.received.add(keyhash)
+                    label= self.myfactors.datastore.get(keyhash)['label_2FA']
                     txt="2FA: "+label+"\n" 
-                        
-                    # coin type: 
-                    coin_type= message['ct']
-                    if coin_type==0:
-                        coin= Bitcoin(False)
-                    elif coin_type==1: #btc testnet
-                        coin= Bitcoin(True)
-                    elif coin_type==2: #litecoin
-                        istest= message['tn']
-                        coin= Litecoin(testnet=istest)
-                    elif coin_type==145: #bcash
-                        istest= message['tn']
-                        coin= BitcoinCash(testnet=istest)
-                        is_segwit= True # bcash uses BIP143 for signature hash creation
-                    else:
-                        Logger.warning("Satochip: Coin not (yet) supported: "+str(coin_type))
-                        coin=BaseCoin()
-                    txt+="Coin: "+coin.display_name+"\n" 
+                    Logger.debug("Satochip: Received challenge for: "+ keyhash)
+                    Logger.debug("Satochip: Corresponding label: "+ label)
+                    Logger.debug("Satochip: Challenge received: "+ message)
                     
-                    # parse tx into a clear message for approval
-                    pre_tx_hex=message['tx']
-                    pre_tx= bytes.fromhex(pre_tx_hex)
-                    pre_hash_hex=  sha256(sha256(pre_tx).digest()).hexdigest()
-                    challenge= pre_hash_hex+ 32*'00'
-                    if is_segwit:
-                        
-                        #parse segwit tx
-                        txin_type=message['ty']
-                        txparser= TxParser(pre_tx)
-                        while not txparser.is_parsed():
-                            chunk= txparser.parse_segwit_transaction()
-                            
-                        Logger.debug("Satochip: hashPrevouts: "+txparser.hashPrevouts.hex())
-                        Logger.debug("Satochip: hashSequence: "+txparser.hashSequence.hex())
-                        Logger.debug("Satochip: txOutHash: "+txparser.txOutHash[::-1].hex())
-                        Logger.debug("Satochip: txOutIndex: "+str(txparser.txOutIndexLong))
-                        Logger.debug("Satochip: inputScript: "+txparser.inputScript.hex())
-                        Logger.debug("Satochip: inputAmount: "+str(txparser.inputAmountLong))
-                        Logger.debug("Satochip: nSequence: "+txparser.nSequence.hex())
-                        Logger.debug("Satochip: hashOutputs: "+txparser.hashOutputs.hex())
-                        Logger.debug("Satochip: nLocktime: "+txparser.nLocktime.hex())
-                        Logger.debug("Satochip: nHashType: "+txparser.nHashType.hex())
-                        
-                        script= txparser.inputScript.hex()
-                        if txin_type== 'p2wpkh':
-                            hash= transaction.output_script_to_h160(script)
-                            hash= bytes.fromhex(hash)
-                            addr= coin.hash_to_segwit_addr(hash)
-                            Logger.debug("Satochip: p2wpkh address: "+addr)
-                        elif txin_type== 'p2wsh': #multisig-segwit
-                            addr= coin.script_to_p2wsh(script)
-                            Logger.debug("Satochip: p2wsh address: "+addr)
-                        elif txin_type== 'p2wsh-p2sh':
-                            h= transaction.output_script_to_h160(script)
-                            addr= coin.p2sh_scriptaddr("0020"+h)
-                            Logger.debug("Satochip: p2wsh-p2sh address: "+addr)
-                        elif txin_type== 'p2wpkh-p2sh':
-                            # for p2wpkh-p2sh addres is derived from script hash, see https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki#P2WPKH_nested_in_BIP16_P2SH
-                            h= transaction.output_script_to_h160(script)
-                            addr= coin.p2sh_scriptaddr("0014"+h)
-                            Logger.debug("Satochip: p2wpkh-p2sh address: "+addr)
-                        elif (coin_type==145) and (txin_type== 'p2pkh' or txin_type== 'p2sh'): # for bcash
-                            addr= coin.scripttoaddr(script)
-                            addr= convert.to_cash_address(addr) #cashAddr conversion
-                            addr= addr.split(":",1)[-1] #remove prefix
-                            Logger.debug("Satochip: txin type: "+ txin_type +" address: "+addr)
+                    # decrypt message & remove padding
+                    key_2FA= bytes.fromhex(self.myfactors.datastore.get(keyhash)['key_2FA'])
+                    message= base64.b64decode(message)
+                    iv= message[0:16]
+                    ciphertext= message[16:]
+                    
+                    decrypter = pyaes.Decrypter(pyaes.AESModeOfOperationCBC(key_2FA, iv))
+                    decrypted = decrypter.feed(ciphertext)
+                    decrypted += decrypter.feed()
+                    Logger.debug("Satochip: Challenge decrypted: "+decrypted.decode('ascii'))
+                    message= json.loads(decrypted) 
+                    if 'action' in message:
+                        action= message['action']
+                    else:
+                        action= "sign_tx"
+                    
+                    if action=="reset_seed":
+                        authentikeyx= message['authentikeyx']
+                        txt+= "Request to reset the seed!\nAuthentikey:"+authentikeyx
+                        challenge= authentikeyx + 32*'FF'
+                    elif action == "reset_2FA":
+                        txt+= "Request to reset 2FA!\nID_2FA:"+keyhash
+                        try:
+                            id_2FA_20b= self.myfactors.datastore.get(keyhash)['id_2FA_20b']
+                        except Exception as ex: # not supported for 2FA created in app version <=0.8/0.9
+                            id_2FA_20b= keyhash 
+                        challenge= id_2FA_20b + 44*'AA'
+                    elif action == "sign_msg":
+                        msg= message['msg']
+                        if 'alt' in message:
+                            altcoin= message['alt']
+                            headersize= bytes([ len(altcoin)+17 ])
+                            paddedmsgbytes = headersize + altcoin.encode('utf8') + b" Signed Message:\n" + num_to_var_int(len(msg)) + bytes(msg, 'utf-8')
                         else:
-                            addr= "unsupported script:"+script+"\n"
-                        
-                        txt+="input:\n"
-                        txt+= "    "+"address: "+addr+" spent: "+str(txparser.inputAmountLong/100000)+"\n"  #satoshi to mBtc
-                                                            
-                       #parse outputs
-                        outputs_hex= message['txo']
-                        outputs= bytes.fromhex(outputs_hex)
-                        hashOutputs=sha256(sha256(outputs[1:]).digest()).hexdigest()
-                        outparser= TxParser(outputs)
-                        while not outparser.is_parsed():
-                            chunk= outparser.parse_outputs()
-                        
-                        nb_outs= outparser.txCurrentOutput
-                        Logger.debug("Satochip: nbrOutputs: "+str(nb_outs))
-                        #txt+="nb_outputs: "+str(nb_outs) + "\n"
-                        #txt+="outputs:\n"
-                        txt+="outputs ("+ str(nb_outs) +"):\n"
-                        amnt_out=0
-                        for i in range(nb_outs):
-                            amnt= outparser.outAmounts[i]  
-                            amnt_out+=amnt
-                            script= outparser.outScripts[i].hex()
-                            is_data_script=False
-                            Logger.debug("Satochip: outScripts: "+script)
-                            Logger.debug("Satochip: amount: "+str(amnt))
-                            if script.startswith( '76a914' ):#p2pkh
-                                addr= coin.scripttoaddr(script)
-                            elif script.startswith( 'a914' ): #p2sh
-                                addr= coin.scripttoaddr(script)
-                            elif script.startswith( '0014' ):#p2wpkh
-                                hash= bytes.fromhex(script[4:])
-                                addr= coin.hash_to_segwit_addr(hash)
-                            elif script.startswith( '0020' ): #p2wsh
-                                hash= bytes.fromhex(script[4:])
-                                addr= coin.hash_to_segwit_addr(hash)
-                            elif script.startswith( '6a' ): # op_return data script  
-                                if script.startswith( '6a04534c5000' ): # SLP token
-                                    try:
-                                        addr= self.parse_slp_script(script)
-                                    except Exception as ex:
-                                        addr= 'Error during SLP script parsing! '
-                                        Logger.warning("Error during SLP script parsing: "+str(ex))
-                                else:
-                                    addr= "DATA: "+  bytes.fromhex(script[6:]).decode('utf-8', errors='backslashreplace') # errors='ignore', 'backslashreplace', 'replace'
-                                is_data_script= True
-                            else: 
-                                addr= "unsupported script:"+script+"\n"
-                                
-                            if coin_type==145 and not is_data_script:
-                                    addr= convert.to_cash_address(addr) #cashAddr conversion
-                                    addr= addr.split(":",1)[-1] #remove prefix
-                                
-                            Logger.debug("Satochip: address: "+addr)
-                            txt+= "    "+"address: "+addr+" spent: "+str(amnt/100000)+"\n"  #satoshi to mBtc
-                        txt+= "    "+"total: "+str(amnt_out/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
-                        
-                        if hashOutputs!=txparser.hashOutputs.hex():
-                            txt+= "Warning! inconsistent output hashes!\n"
-                    
-                    # non-segwit tx
-                    else:
-                        pre_tx_dic={}
-                        try: 
-                            pre_tx_dic= transaction.deserialize(pre_tx)
-                        except Exception as e:
-                            Logger.warning("Exception during (non-segwit) tx parsing: "+str(e))
-                            txt="Error parsing tx!"
-                            self.listener.clear(keyhash)
-                            return
-                        Logger.debug("Satochip: pre_tx_dic: "+str(pre_tx_dic))
-                        
-                        # inputs 
-                        amount_in=0
-                        ins= pre_tx_dic['ins']
-                        nb_ins= len(ins)
-                        #txt+="nb_inputs: "+str(nb_ins) + "\n"
-                        #txt+="inputs:\n"
-                        txt+="inputs ("+ str(nb_ins) +"):\n"
-                        for i in ins:
-                            script= i['script'].hex()
-                            Logger.debug("Satochip: input script: "+script)
+                            altcoin= "Bitcoin"
+                            paddedmsgbytes = b"\x18Bitcoin Signed Message:\n" + num_to_var_int(len(msg)) + bytes(msg, 'utf-8')          
+                        txt+= "Request to sign "+ altcoin +" message:\n"+msg+"\n"
+                        paddedmsghash= sha256(paddedmsgbytes).hexdigest()
+                        challenge= paddedmsghash + 32*"BB"
+                    elif action== "sign_tx":
+                        (txt, challenge)= self.action_sign_tx(keyhash, message)
+                        # is_segwit= message['sw']
+                        # txt="2FA: "+label+"\n" 
                             
-                            # recover script and corresponding addresse
-                            if script=="":# all input scripts are removed for signing except 1
-                                outpoint= i['outpoint']
-                                hash= outpoint['hash'].hex()
-                                index= outpoint['index']
-                                #Logger.debug('Satochip: hash: hash:index: ' +hash+":"+str(index))
-                                tx= coin.fetchtx(hash)
-                                #Logger.debug('Satochip: tx: '+str(tx))
-                                outs= tx['out']
-                                out= outs[index]
-                                val= out['value']
-                                script= out['script']
-                                addr= coin.scripttoaddr(script)
-                                addr= "(empty for signing: "+ addr[0:16] +"...)" 
-                            if script.endswith("ae"):#m-of-n pay-to-multisig
-                                m= int(script[0:2], 16)-80
-                                n= int(script[-4:-2], 16)-80
-                                txt+="    "+"multisig "+str(m)+"-of-"+str(n)+"\n"
-                                addr= coin.p2sh_scriptaddr(script)
-                                Logger.debug("Satochip: address multisig: "+addr)
-                            else: #p2pkh, p2sh
-                                addr= coin.scripttoaddr(script)
-                                Logger.debug("Satochip: address: "+addr)
+                        # # coin type: 
+                        # coin_type= message['ct']
+                        # if coin_type==0:
+                            # coin= Bitcoin(False)
+                        # elif coin_type==1: #btc testnet
+                            # coin= Bitcoin(True)
+                        # elif coin_type==2: #litecoin
+                            # istest= message['tn']
+                            # coin= Litecoin(testnet=istest)
+                        # elif coin_type==145: #bcash
+                            # istest= message['tn']
+                            # coin= BitcoinCash(testnet=istest)
+                            # is_segwit= True # bcash uses BIP143 for signature hash creation
+                        # else:
+                            # Logger.warning("Satochip: Coin not (yet) supported: "+str(coin_type))
+                            # coin=BaseCoin()
+                        # txt+="Coin: "+coin.display_name+"\n" 
+                        
+                        # # parse tx into a clear message for approval
+                        # pre_tx_hex=message['tx']
+                        # pre_tx= bytes.fromhex(pre_tx_hex)
+                        # pre_hash_hex=  sha256(sha256(pre_tx).digest()).hexdigest()
+                        # challenge= pre_hash_hex+ 32*'00'
+                        # if is_segwit:
                             
-                            # get value from blockchain explorer
-                            val=0
-                            try: 
-                                unspent= coin.unspent_web(addr)
-                                for d in unspent:
-                                    val+=d['value']
-                            except Exception as e:
-                                Logger.warning("Exception during coin.unspent_web request: "+str(e))
-                                #try to get value from electrum server (seem slow...)
-                                # try:
-                                    # hs= sha256(bytes.fromhex(script)).digest()
-                                    # hs= hs[::-1]
-                                    # balances=  coin.balance(True, hs.hex())
-                                    # val= sum(balances)                                  
+                            # #parse segwit tx
+                            # txin_type=message['ty']
+                            # txparser= TxParser(pre_tx)
+                            # while not txparser.is_parsed():
+                                # chunk= txparser.parse_segwit_transaction()
+                                
+                            # Logger.debug("Satochip: hashPrevouts: "+txparser.hashPrevouts.hex())
+                            # Logger.debug("Satochip: hashSequence: "+txparser.hashSequence.hex())
+                            # Logger.debug("Satochip: txOutHash: "+txparser.txOutHash[::-1].hex())
+                            # Logger.debug("Satochip: txOutIndex: "+str(txparser.txOutIndexLong))
+                            # Logger.debug("Satochip: inputScript: "+txparser.inputScript.hex())
+                            # Logger.debug("Satochip: inputAmount: "+str(txparser.inputAmountLong))
+                            # Logger.debug("Satochip: nSequence: "+txparser.nSequence.hex())
+                            # Logger.debug("Satochip: hashOutputs: "+txparser.hashOutputs.hex())
+                            # Logger.debug("Satochip: nLocktime: "+txparser.nLocktime.hex())
+                            # Logger.debug("Satochip: nHashType: "+txparser.nHashType.hex())
+                            
+                            # script= txparser.inputScript.hex()
+                            # if txin_type== 'p2wpkh':
+                                # hash= transaction.output_script_to_h160(script)
+                                # hash= bytes.fromhex(hash)
+                                # addr= coin.hash_to_segwit_addr(hash)
+                                # Logger.debug("Satochip: p2wpkh address: "+addr)
+                            # elif txin_type== 'p2wsh': #multisig-segwit
+                                # addr= coin.script_to_p2wsh(script)
+                                # Logger.debug("Satochip: p2wsh address: "+addr)
+                            # elif txin_type== 'p2wsh-p2sh':
+                                # h= transaction.output_script_to_h160(script)
+                                # addr= coin.p2sh_scriptaddr("0020"+h)
+                                # Logger.debug("Satochip: p2wsh-p2sh address: "+addr)
+                            # elif txin_type== 'p2wpkh-p2sh':
+                                # # for p2wpkh-p2sh addres is derived from script hash, see https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki#P2WPKH_nested_in_BIP16_P2SH
+                                # h= transaction.output_script_to_h160(script)
+                                # addr= coin.p2sh_scriptaddr("0014"+h)
+                                # Logger.debug("Satochip: p2wpkh-p2sh address: "+addr)
+                            # elif (coin_type==145) and (txin_type== 'p2pkh' or txin_type== 'p2sh'): # for bcash
+                                # addr= coin.scripttoaddr(script)
+                                # addr= convert.to_cash_address(addr) #cashAddr conversion
+                                # addr= addr.split(":",1)[-1] #remove prefix
+                                # Logger.debug("Satochip: txin type: "+ txin_type +" address: "+addr)
+                            # else:
+                                # addr= "unsupported script:"+script+"\n"
+                            
+                            # txt+="input:\n"
+                            # txt+= "    "+"address: "+addr+" spent: "+str(txparser.inputAmountLong/100000)+"\n"  #satoshi to mBtc
+                                                                
+                           # #parse outputs
+                            # outputs_hex= message['txo']
+                            # outputs= bytes.fromhex(outputs_hex)
+                            # hashOutputs=sha256(sha256(outputs[1:]).digest()).hexdigest()
+                            # outparser= TxParser(outputs)
+                            # while not outparser.is_parsed():
+                                # chunk= outparser.parse_outputs()
+                            
+                            # nb_outs= outparser.txCurrentOutput
+                            # Logger.debug("Satochip: nbrOutputs: "+str(nb_outs))
+                            # #txt+="nb_outputs: "+str(nb_outs) + "\n"
+                            # #txt+="outputs:\n"
+                            # txt+="outputs ("+ str(nb_outs) +"):\n"
+                            # amnt_out=0
+                            # for i in range(nb_outs):
+                                # amnt= outparser.outAmounts[i]  
+                                # amnt_out+=amnt
+                                # script= outparser.outScripts[i].hex()
+                                # is_data_script=False
+                                # Logger.debug("Satochip: outScripts: "+script)
+                                # Logger.debug("Satochip: amount: "+str(amnt))
+                                # if script.startswith( '76a914' ):#p2pkh
+                                    # addr= coin.scripttoaddr(script)
+                                # elif script.startswith( 'a914' ): #p2sh
+                                    # addr= coin.scripttoaddr(script)
+                                # elif script.startswith( '0014' ):#p2wpkh
+                                    # hash= bytes.fromhex(script[4:])
+                                    # addr= coin.hash_to_segwit_addr(hash)
+                                # elif script.startswith( '0020' ): #p2wsh
+                                    # hash= bytes.fromhex(script[4:])
+                                    # addr= coin.hash_to_segwit_addr(hash)
+                                # elif script.startswith( '6a' ): # op_return data script  
+                                    # if script.startswith( '6a04534c5000' ): # SLP token
+                                        # try:
+                                            # addr= self.parse_slp_script(script)
+                                        # except Exception as ex:
+                                            # addr= 'Error during SLP script parsing! '
+                                            # Logger.warning("Error during SLP script parsing: "+str(ex))
+                                    # else:
+                                        # addr= "DATA: "+  bytes.fromhex(script[6:]).decode('utf-8', errors='backslashreplace') # errors='ignore', 'backslashreplace', 'replace'
+                                    # is_data_script= True
+                                # else: 
+                                    # addr= "unsupported script:"+script+"\n"
+                                    
+                                # if coin_type==145 and not is_data_script:
+                                        # addr= convert.to_cash_address(addr) #cashAddr conversion
+                                        # addr= addr.split(":",1)[-1] #remove prefix
+                                    
+                                # Logger.debug("Satochip: address: "+addr)
+                                # txt+= "    "+"address: "+addr+" spent: "+str(amnt/100000)+"\n"  #satoshi to mBtc
+                            # txt+= "    "+"total: "+str(amnt_out/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
+                            
+                            # if hashOutputs!=txparser.hashOutputs.hex():
+                                # txt+= "Warning! inconsistent output hashes!\n"
+                        
+                        # # non-segwit tx
+                        # else:
+                            # pre_tx_dic={}
+                            # try: 
+                                # pre_tx_dic= transaction.deserialize(pre_tx)
+                            # except Exception as e:
+                                # Logger.warning("Exception during (non-segwit) tx parsing: "+str(e))
+                                # txt="Error parsing tx!"
+                                # self.listener.clear(keyhash)
+                                # return
+                            # Logger.debug("Satochip: pre_tx_dic: "+str(pre_tx_dic))
+                            
+                            # # inputs 
+                            # amount_in=0
+                            # ins= pre_tx_dic['ins']
+                            # nb_ins= len(ins)
+                            # #txt+="nb_inputs: "+str(nb_ins) + "\n"
+                            # #txt+="inputs:\n"
+                            # txt+="inputs ("+ str(nb_ins) +"):\n"
+                            # for i in ins:
+                                # script= i['script'].hex()
+                                # Logger.debug("Satochip: input script: "+script)
+                                
+                                # # recover script and corresponding addresse
+                                # if script=="":# all input scripts are removed for signing except 1
+                                    # outpoint= i['outpoint']
+                                    # hash= outpoint['hash'].hex()
+                                    # index= outpoint['index']
+                                    # #Logger.debug('Satochip: hash: hash:index: ' +hash+":"+str(index))
+                                    # tx= coin.fetchtx(hash)
+                                    # #Logger.debug('Satochip: tx: '+str(tx))
+                                    # outs= tx['out']
+                                    # out= outs[index]
+                                    # val= out['value']
+                                    # script= out['script']
+                                    # addr= coin.scripttoaddr(script)
+                                    # addr= "(empty for signing: "+ addr[0:16] +"...)" 
+                                # if script.endswith("ae"):#m-of-n pay-to-multisig
+                                    # m= int(script[0:2], 16)-80
+                                    # n= int(script[-4:-2], 16)-80
+                                    # txt+="    "+"multisig "+str(m)+"-of-"+str(n)+"\n"
+                                    # addr= coin.p2sh_scriptaddr(script)
+                                    # Logger.debug("Satochip: address multisig: "+addr)
+                                # else: #p2pkh, p2sh
+                                    # addr= coin.scripttoaddr(script)
+                                    # Logger.debug("Satochip: address: "+addr)
+                                
+                                # # get value from blockchain explorer
+                                # val=0
+                                # try: 
+                                    # unspent= coin.unspent_web(addr)
+                                    # for d in unspent:
+                                        # val+=d['value']
                                 # except Exception as e:
-                                    # Logger.warning("Exception during coin.balance request: "+str(e))                            
+                                    # Logger.warning("Exception during coin.unspent_web request: "+str(e))
+                                    # #try to get value from electrum server (seem slow...)
+                                    # # try:
+                                        # # hs= sha256(bytes.fromhex(script)).digest()
+                                        # # hs= hs[::-1]
+                                        # # balances=  coin.balance(True, hs.hex())
+                                        # # val= sum(balances)                                  
+                                    # # except Exception as e:
+                                        # # Logger.warning("Exception during coin.balance request: "+str(e))                            
+                                
+                                # txt+="    "+"address: "+addr+" balance: "+str(val/100000) +"\n" 
+                                # amount_in+=val
+                            # txt+="    "+"total: "+str(amount_in/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
                             
-                            txt+="    "+"address: "+addr+" balance: "+str(val/100000) +"\n" 
-                            amount_in+=val
-                        txt+="    "+"total: "+str(amount_in/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
+                            # # outputs    
+                            # fee=0
+                            # amount_out=0
+                            # outs= pre_tx_dic['outs']
+                            # nb_outs= len(outs)
+                            # #txt+="nb_outputs: "+str(nb_outs) + "\n"
+                            # #txt+="outputs:\n"
+                            # txt+="outputs ("+ str(nb_outs) +"):\n"
+                            # for o in outs:
+                                # val= (o['value'])
+                                # script= o['script'].hex()
+                                # Logger.debug("Satochip: output script: "+script)
+                                # if script.startswith( '76a914' ):# p2pkh
+                                    # addr= coin.scripttoaddr(script)
+                                # elif script.startswith( 'a914' ): # p2sh
+                                    # addr= coin.scripttoaddr(script)
+                                # elif script.startswith( '0014' ):#p2wpkh
+                                    # hash= bytes.fromhex(script[4:])
+                                    # addr= coin.hash_to_segwit_addr(hash)
+                                # elif script.startswith( '0020' ):#p2wsh
+                                    # hash= bytes.fromhex(script[4:])
+                                    # addr= coin.hash_to_segwit_addr(hash)
+                                # else: 
+                                    # addr= "unsupported script:"+script+"\n"
+                                # txt+="    "+"address: "+addr+" spent: "+str(val/100000)+"\n" #satoshi to mBtc
+                                # amount_out+=val
+                            # txt+="    "+"total: "+str(amount_out/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
+                            # fee= amount_in-amount_out
+                            # if fee >=0:
+                                # txt+="    "+"fees:  "+str(fee/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
+                    
+                    # sign message hash, currently only supports Ethereum
+                    elif action== "sign_msg_hash":
+                        msg= message['msg']
+                        # if message is in hex-format, convert it to utf8 string
+                        if msg.startswith('0x'):
+                            msg= msg[len('0x'):]
+                            try: 
+                                int(msg, 16) # check if hex
+                                import codecs
+                                msg= codecs.decode(msg, "hex").decode('utf-8')
+                            except Exception as ex:
+                                msg= message['msg']
+                        hash= message['hash']
+                        altcoin= "Ethereum"
                         
-                        # outputs    
-                        fee=0
-                        amount_out=0
-                        outs= pre_tx_dic['outs']
-                        nb_outs= len(outs)
-                        #txt+="nb_outputs: "+str(nb_outs) + "\n"
-                        #txt+="outputs:\n"
-                        txt+="outputs ("+ str(nb_outs) +"):\n"
-                        for o in outs:
-                            val= (o['value'])
-                            script= o['script'].hex()
-                            Logger.debug("Satochip: output script: "+script)
-                            if script.startswith( '76a914' ):# p2pkh
-                                addr= coin.scripttoaddr(script)
-                            elif script.startswith( 'a914' ): # p2sh
-                                addr= coin.scripttoaddr(script)
-                            elif script.startswith( '0014' ):#p2wpkh
-                                hash= bytes.fromhex(script[4:])
-                                addr= coin.hash_to_segwit_addr(hash)
-                            elif script.startswith( '0020' ):#p2wsh
-                                hash= bytes.fromhex(script[4:])
-                                addr= coin.hash_to_segwit_addr(hash)
-                            else: 
-                                addr= "unsupported script:"+script+"\n"
-                            txt+="    "+"address: "+addr+" spent: "+str(val/100000)+"\n" #satoshi to mBtc
-                            amount_out+=val
-                        txt+="    "+"total: "+str(amount_out/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
-                        fee= amount_in-amount_out
-                        if fee >=0:
-                            txt+="    "+"fees:  "+str(fee/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
-                
-                # sign message hash, currently only supports Ethereum
-                elif action== "sign_msg_hash":
-                    msg= message['msg']
-                    # if message is in hex-format, convert it to utf8 string
-                    if msg.startswith('0x'):
-                        msg= msg[len('0x'):]
+                        paddedmsghash= bytes(eth_messages.defunct_hash_message(text=msg)).hex() #paddedmsghash= bytes(messages.defunct_hash_message(text=msg)).hex() #sha256(paddedmsgbytes).hexdigest()
+                        Logger.info("Msg hash1: "+hash)
+                        Logger.info("Msg hash2: "+paddedmsghash)
+                        txt= "Request to sign "+ altcoin +" message:\n"+msg+"\n"
+                        if paddedmsghash!=hash:
+                            txt+= "Warning: inconsistent msg hashes! \nYou should reject the request unless you know what you are doing!"
+                        challenge= hash + 32*"CC"
+                    
+                    elif action== "sign_tx_hash":
+                        # TODO: put in function
+                        tx= message['tx']
+                        hash= message['hash']
+                        txbytes= bytes.fromhex(tx)
+                        #tx_hash = keccak(txbytes).hex() # serialization depends on client, better deserialize and recomputes hash
+                        txrlp= rlp.decode(txbytes, eth_transactions.Transaction)
+                        tx_nonce= txrlp.nonce
+                        tx_gas= txrlp.gas
+                        tx_gas_price=txrlp.gas_price
+                        tx_to='0x'+txrlp.to.hex()
+                        tx_value= txrlp.value 
+                        tx_data='0x'+ txrlp.data.hex()
+                        #tx_chainid= txrlp.v
+                        tx_chainid= message.get('chainId',  txrlp.v) # 
                         try: 
-                            int(msg, 16) # check if hex
-                            import codecs
-                            msg= codecs.decode(msg, "hex").decode('utf-8')
+                            tx_from= '0x'+message['from']
                         except Exception as ex:
-                            msg= message['msg']
-                    hash= message['hash']
-                    altcoin= "Ethereum"
-                    
-                    paddedmsghash= bytes(eth_messages.defunct_hash_message(text=msg)).hex() #paddedmsghash= bytes(messages.defunct_hash_message(text=msg)).hex() #sha256(paddedmsgbytes).hexdigest()
-                    Logger.info("Msg hash1: "+hash)
-                    Logger.info("Msg hash2: "+paddedmsghash)
-                    txt= "Request to sign "+ altcoin +" message:\n"+msg+"\n"
-                    if paddedmsghash!=hash:
-                        txt+= "Warning: inconsistent msg hashes! \nYou should reject the request unless you know what you are doing!"
-                    challenge= hash + 32*"CC"
-                
-                elif action== "sign_tx_hash":
-                    tx= message['tx']
-                    hash= message['hash']
-                    txbytes= bytes.fromhex(tx)
-                    #tx_hash = keccak(txbytes).hex() # serialization depends on client, better deserialize and recomputes hash
-                    txrlp= rlp.decode(txbytes, eth_transactions.Transaction)
-                    tx_nonce= txrlp.nonce
-                    tx_gas= txrlp.gas
-                    tx_gas_price=txrlp.gas_price
-                    tx_to='0x'+txrlp.to.hex()
-                    tx_value= txrlp.value 
-                    tx_data='0x'+ txrlp.data.hex()
-                    #tx_chainid= txrlp.v
-                    tx_chainid= message.get('chainId',  txrlp.v) # 
-                    try: 
-                        tx_from= '0x'+message['from']
-                    except Exception as ex:
-                        tx_from= '(not supported)'
-                    
-                    # reencode with chainId (EIP155)
-                    tx2= eth_transactions.Transaction(txrlp.nonce, txrlp.gas_price, txrlp.gas, txrlp.to, txrlp.value, txrlp.data, tx_chainid, 0, 0)
-                    txraw= rlp.encode(tx2)
-                    print("txraw: " + txraw.hex())
-                    tx_hash = keccak(txraw).hex()
-                    print("tx_hash: " + tx_hash)
-                    
-                    try:
-                        chain_file= "./chains/_data/chains/eip155-"+str(tx_chainid)+".json"
-                        Logger.info("ChainId file:"+chain_file)
-                        chain_store = JsonStore(chain_file)
-                        tx_coinname= chain_store.get("nativeCurrency")["name"]
-                        tx_coinsymbol= chain_store.get("nativeCurrency")["symbol"]
-                        tx_coindecimals=chain_store.get("nativeCurrency")["decimals"]
-                    except Exception as ex:
-                        tx_coinname= "(unknown)"
-                        tx_coinsymbol= "(unknown)"
-                        tx_coindecimals= 0
+                            tx_from= '(not supported)'
                         
-                    txt="2FA: "+label+"\n" 
-                    txt+="Coin: "+tx_coinname+"\n" 
-                    txt+="From: "+tx_from+"\n"
-                    txt+="To: "+tx_to+"\n" 
-                    txt+="Value: "+ str(tx_value/(10**tx_coindecimals)) +" " +tx_coinsymbol+"\n" 
-                    txt+="Gas: "+str(tx_gas)+"\n" 
-                    txt+="Gas price: "+str(tx_gas_price)+"\n"
-                    txt+="Max fee: "+str(tx_gas*tx_gas_price/(10**tx_coindecimals)) +" " +tx_coinsymbol+"\n" 
-                    txt+="Data: "+tx_data+"\n" #todo: parse data
-                    txt+="Hash: "+tx_hash+"\n" #debug
-                    if tx_hash!=hash:
-                        txt+= "Warning! inconsistent tx hashes! \nYou should reject the request unless you know what you are doing!"
-                    challenge= hash + 32*"CC"
+                        # reencode with chainId (EIP155)
+                        tx2= eth_transactions.Transaction(txrlp.nonce, txrlp.gas_price, txrlp.gas, txrlp.to, txrlp.value, txrlp.data, tx_chainid, 0, 0)
+                        txraw= rlp.encode(tx2)
+                        print("txraw: " + txraw.hex())
+                        tx_hash = keccak(txraw).hex()
+                        print("tx_hash: " + tx_hash)
+                        
+                        try:
+                            chain_file= "./chains/_data/chains/eip155-"+str(tx_chainid)+".json"
+                            Logger.info("ChainId file:"+chain_file)
+                            chain_store = JsonStore(chain_file)
+                            tx_coinname= chain_store.get("nativeCurrency")["name"]
+                            tx_coinsymbol= chain_store.get("nativeCurrency")["symbol"]
+                            tx_coindecimals=chain_store.get("nativeCurrency")["decimals"]
+                        except Exception as ex:
+                            tx_coinname= "(unknown)"
+                            tx_coinsymbol= "(unknown)"
+                            tx_coindecimals= 0
+                            
+                        txt="2FA: "+label+"\n" 
+                        txt+="Coin: "+tx_coinname+"\n" 
+                        txt+="From: "+tx_from+"\n"
+                        txt+="To: "+tx_to+"\n" 
+                        txt+="Value: "+ str(tx_value/(10**tx_coindecimals)) +" " +tx_coinsymbol+"\n" 
+                        txt+="Gas: "+str(tx_gas)+"\n" 
+                        txt+="Gas price: "+str(tx_gas_price)+"\n"
+                        txt+="Max fee: "+str(tx_gas*tx_gas_price/(10**tx_coindecimals)) +" " +tx_coinsymbol+"\n" 
+                        txt+="Data: "+tx_data+"\n" #todo: parse data
+                        txt+="Hash: "+tx_hash+"\n" #debug
+                        if tx_hash!=hash:
+                            txt+= "Warning! inconsistent tx hashes! \nYou should reject the request unless you know what you are doing!"
+                        challenge= hash + 32*"CC"
+                        
+                    else: 
+                        txt= "Unsupported operation: "+decrypted.decode('ascii')
                     
+                    # 2FA challenges:
+                    # - Tx approval: [ 32b Tx hash | 32-bit 0x00-padding ]
+                    # - ECkey import:[ 32b coordx  | 32-bit (0x10^key_nb)-padding ]
+                    # - ECkey reset: [ 32b coordx  | 32-bit (0x20^key_nb)-padding ]
+                    # - 2FA reset:   [ 20b 2FA_ID  | 44-bit 0xAA-padding ]  
+                    # - Seed reset:  [ 32b authentikey-coordx  | 32-bit 0xFF-padding ]
+                    # - Msg signing: [ 32b SHA26(btcHeader+msg) | 32-bit 0xBB-padding ]
+                    # - Hash signing: [ 32b hash | 32-bit 0xBB-padding]
+                    self.listener.postbox.append([keyhash, challenge])
+                    self.display = txt
+                    self.label_logs+= txt +"\n"
+                    Logger.info("Satochip: \nNew challenge: "+challenge+"\nReceived on "+str(datetime.now())+":\n"+txt)
+                    
+                    self.btn_disabled= False
+                    return
+                except Exception as ex:
+                    txt= f"Error during parsing of the request!" #TODO: pretty print message
+                    self.display = txt
+                    self.label_logs+= txt
+                    Logger.warning(txt)
+                    self.listener.clear(keyhash) # remove faulty request from server
+                    
+    # TODO: TEST CHANGES!
+    def action_sign_tx(self, keyhash, message):
+        is_segwit= message['sw']
+        # coin type: 
+        coin_type= message['ct']
+        if coin_type==0:
+            coin= Bitcoin(False)
+        elif coin_type==1: #btc testnet
+            coin= Bitcoin(True)
+        elif coin_type==2: #litecoin
+            istest= message['tn']
+            coin= Litecoin(testnet=istest)
+        elif coin_type==145: #bcash
+            istest= message['tn']
+            coin= BitcoinCash(testnet=istest)
+            is_segwit= True # bcash uses BIP143 for signature hash creation
+        else:
+            Logger.warning("Satochip: Coin not (yet) supported: "+str(coin_type))
+            coin=BaseCoin()
+        txt+="Coin: "+coin.display_name+"\n" 
+        
+        # parse tx into a clear message for approval
+        pre_tx_hex=message['tx']
+        pre_tx= bytes.fromhex(pre_tx_hex)
+        pre_hash_hex=  sha256(sha256(pre_tx).digest()).hexdigest()
+        challenge= pre_hash_hex+ 32*'00'
+        if is_segwit:
+            
+            #parse segwit tx
+            txin_type=message['ty']
+            txparser= TxParser(pre_tx)
+            while not txparser.is_parsed():
+                chunk= txparser.parse_segwit_transaction()
+                
+            Logger.debug("Satochip: hashPrevouts: "+txparser.hashPrevouts.hex())
+            Logger.debug("Satochip: hashSequence: "+txparser.hashSequence.hex())
+            Logger.debug("Satochip: txOutHash: "+txparser.txOutHash[::-1].hex())
+            Logger.debug("Satochip: txOutIndex: "+str(txparser.txOutIndexLong))
+            Logger.debug("Satochip: inputScript: "+txparser.inputScript.hex())
+            Logger.debug("Satochip: inputAmount: "+str(txparser.inputAmountLong))
+            Logger.debug("Satochip: nSequence: "+txparser.nSequence.hex())
+            Logger.debug("Satochip: hashOutputs: "+txparser.hashOutputs.hex())
+            Logger.debug("Satochip: nLocktime: "+txparser.nLocktime.hex())
+            Logger.debug("Satochip: nHashType: "+txparser.nHashType.hex())
+            
+            script= txparser.inputScript.hex()
+            if txin_type== 'p2wpkh':
+                hash= transaction.output_script_to_h160(script)
+                hash= bytes.fromhex(hash)
+                addr= coin.hash_to_segwit_addr(hash)
+                Logger.debug("Satochip: p2wpkh address: "+addr)
+            elif txin_type== 'p2wsh': #multisig-segwit
+                addr= coin.script_to_p2wsh(script)
+                Logger.debug("Satochip: p2wsh address: "+addr)
+            elif txin_type== 'p2wsh-p2sh':
+                h= transaction.output_script_to_h160(script)
+                addr= coin.p2sh_scriptaddr("0020"+h)
+                Logger.debug("Satochip: p2wsh-p2sh address: "+addr)
+            elif txin_type== 'p2wpkh-p2sh':
+                # for p2wpkh-p2sh addres is derived from script hash, see https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki#P2WPKH_nested_in_BIP16_P2SH
+                h= transaction.output_script_to_h160(script)
+                addr= coin.p2sh_scriptaddr("0014"+h)
+                Logger.debug("Satochip: p2wpkh-p2sh address: "+addr)
+            elif (coin_type==145) and (txin_type== 'p2pkh' or txin_type== 'p2sh'): # for bcash
+                addr= coin.scripttoaddr(script)
+                addr= convert.to_cash_address(addr) #cashAddr conversion
+                addr= addr.split(":",1)[-1] #remove prefix
+                Logger.debug("Satochip: txin type: "+ txin_type +" address: "+addr)
+            else:
+                addr= "unsupported script:"+script+"\n"
+            
+            txt+="input:\n"
+            txt+= "    "+"address: "+addr+" spent: "+str(txparser.inputAmountLong/100000)+"\n"  #satoshi to mBtc
+                                                
+           #parse outputs
+            outputs_hex= message['txo']
+            outputs= bytes.fromhex(outputs_hex)
+            hashOutputs=sha256(sha256(outputs[1:]).digest()).hexdigest()
+            outparser= TxParser(outputs)
+            while not outparser.is_parsed():
+                chunk= outparser.parse_outputs()
+            
+            nb_outs= outparser.txCurrentOutput
+            Logger.debug("Satochip: nbrOutputs: "+str(nb_outs))
+            #txt+="nb_outputs: "+str(nb_outs) + "\n"
+            #txt+="outputs:\n"
+            txt+="outputs ("+ str(nb_outs) +"):\n"
+            amnt_out=0
+            for i in range(nb_outs):
+                amnt= outparser.outAmounts[i]  
+                amnt_out+=amnt
+                script= outparser.outScripts[i].hex()
+                is_data_script=False
+                Logger.debug("Satochip: outScripts: "+script)
+                Logger.debug("Satochip: amount: "+str(amnt))
+                if script.startswith( '76a914' ):#p2pkh
+                    addr= coin.scripttoaddr(script)
+                elif script.startswith( 'a914' ): #p2sh
+                    addr= coin.scripttoaddr(script)
+                elif script.startswith( '0014' ):#p2wpkh
+                    hash= bytes.fromhex(script[4:])
+                    addr= coin.hash_to_segwit_addr(hash)
+                elif script.startswith( '0020' ): #p2wsh
+                    hash= bytes.fromhex(script[4:])
+                    addr= coin.hash_to_segwit_addr(hash)
+                elif script.startswith( '6a' ): # op_return data script  
+                    if script.startswith( '6a04534c5000' ): # SLP token
+                        try:
+                            addr= self.parse_slp_script(script)
+                        except Exception as ex:
+                            addr= 'Error during SLP script parsing! '
+                            Logger.warning("Error during SLP script parsing: "+str(ex))
+                    else:
+                        addr= "DATA: "+  bytes.fromhex(script[6:]).decode('utf-8', errors='backslashreplace') # errors='ignore', 'backslashreplace', 'replace'
+                    is_data_script= True
                 else: 
-                    txt= "Unsupported operation: "+decrypted.decode('ascii')
-                
-                # 2FA challenges:
-                # - Tx approval: [ 32b Tx hash | 32-bit 0x00-padding ]
-                # - ECkey import:[ 32b coordx  | 32-bit (0x10^key_nb)-padding ]
-                # - ECkey reset: [ 32b coordx  | 32-bit (0x20^key_nb)-padding ]
-                # - 2FA reset:   [ 20b 2FA_ID  | 44-bit 0xAA-padding ]  
-                # - Seed reset:  [ 32b authentikey-coordx  | 32-bit 0xFF-padding ]
-                # - Msg signing: [ 32b SHA26(btcHeader+msg) | 32-bit 0xBB-padding ]
-                # - Hash signing: [ 32b hash | 32-bit 0xBB-padding]
-                self.listener.postbox.append([keyhash, challenge])
-                self.display = txt
-                self.label_logs+= txt +"\n"
-                Logger.info("Satochip: \nNew challenge: "+challenge+"\nReceived on "+str(datetime.now())+":\n"+txt)
-                
-                self.btn_disabled= False
+                    addr= "unsupported script:"+script+"\n"
+                    
+                if coin_type==145 and not is_data_script:
+                        addr= convert.to_cash_address(addr) #cashAddr conversion
+                        addr= addr.split(":",1)[-1] #remove prefix
+                    
+                Logger.debug("Satochip: address: "+addr)
+                txt+= "    "+"address: "+addr+" spent: "+str(amnt/100000)+"\n"  #satoshi to mBtc
+            txt+= "    "+"total: "+str(amnt_out/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
+            
+            if hashOutputs!=txparser.hashOutputs.hex():
+                txt+= "Warning! inconsistent output hashes!\n"
+        
+        # non-segwit tx
+        else:
+            pre_tx_dic={}
+            try: 
+                pre_tx_dic= transaction.deserialize(pre_tx)
+            except Exception as e:
+                Logger.warning("Exception during (non-segwit) tx parsing: "+str(e))
+                txt="Error parsing tx!"
+                self.listener.clear(keyhash) # TODO: remove & catch in update()
                 return
+            Logger.debug("Satochip: pre_tx_dic: "+str(pre_tx_dic))
+            
+            # inputs 
+            amount_in=0
+            ins= pre_tx_dic['ins']
+            nb_ins= len(ins)
+            #txt+="nb_inputs: "+str(nb_ins) + "\n"
+            #txt+="inputs:\n"
+            txt+="inputs ("+ str(nb_ins) +"):\n"
+            for i in ins:
+                script= i['script'].hex()
+                Logger.debug("Satochip: input script: "+script)
+                
+                # recover script and corresponding addresse
+                if script=="":# all input scripts are removed for signing except 1
+                    outpoint= i['outpoint']
+                    hash= outpoint['hash'].hex()
+                    index= outpoint['index']
+                    #Logger.debug('Satochip: hash: hash:index: ' +hash+":"+str(index))
+                    tx= coin.fetchtx(hash)
+                    #Logger.debug('Satochip: tx: '+str(tx))
+                    outs= tx['out']
+                    out= outs[index]
+                    val= out['value']
+                    script= out['script']
+                    addr= coin.scripttoaddr(script)
+                    addr= "(empty for signing: "+ addr[0:16] +"...)" 
+                if script.endswith("ae"):#m-of-n pay-to-multisig
+                    m= int(script[0:2], 16)-80
+                    n= int(script[-4:-2], 16)-80
+                    txt+="    "+"multisig "+str(m)+"-of-"+str(n)+"\n"
+                    addr= coin.p2sh_scriptaddr(script)
+                    Logger.debug("Satochip: address multisig: "+addr)
+                else: #p2pkh, p2sh
+                    addr= coin.scripttoaddr(script)
+                    Logger.debug("Satochip: address: "+addr)
+                
+                # get value from blockchain explorer
+                val=0
+                try: 
+                    unspent= coin.unspent_web(addr)
+                    for d in unspent:
+                        val+=d['value']
+                except Exception as e:
+                    Logger.warning("Exception during coin.unspent_web request: "+str(e))
+                    #try to get value from electrum server (seem slow...)
+                    # try:
+                        # hs= sha256(bytes.fromhex(script)).digest()
+                        # hs= hs[::-1]
+                        # balances=  coin.balance(True, hs.hex())
+                        # val= sum(balances)                                  
+                    # except Exception as e:
+                        # Logger.warning("Exception during coin.balance request: "+str(e))                            
+                
+                txt+="    "+"address: "+addr+" balance: "+str(val/100000) +"\n" 
+                amount_in+=val
+            txt+="    "+"total: "+str(amount_in/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
+            
+            # outputs    
+            fee=0
+            amount_out=0
+            outs= pre_tx_dic['outs']
+            nb_outs= len(outs)
+            #txt+="nb_outputs: "+str(nb_outs) + "\n"
+            #txt+="outputs:\n"
+            txt+="outputs ("+ str(nb_outs) +"):\n"
+            for o in outs:
+                val= (o['value'])
+                script= o['script'].hex()
+                Logger.debug("Satochip: output script: "+script)
+                if script.startswith( '76a914' ):# p2pkh
+                    addr= coin.scripttoaddr(script)
+                elif script.startswith( 'a914' ): # p2sh
+                    addr= coin.scripttoaddr(script)
+                elif script.startswith( '0014' ):#p2wpkh
+                    hash= bytes.fromhex(script[4:])
+                    addr= coin.hash_to_segwit_addr(hash)
+                elif script.startswith( '0020' ):#p2wsh
+                    hash= bytes.fromhex(script[4:])
+                    addr= coin.hash_to_segwit_addr(hash)
+                else: 
+                    addr= "unsupported script:"+script+"\n"
+                txt+="    "+"address: "+addr+" spent: "+str(val/100000)+"\n" #satoshi to mBtc
+                amount_out+=val
+            txt+="    "+"total: "+str(amount_out/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
+            fee= amount_in-amount_out
+            if fee >=0:
+                txt+="    "+"fees:  "+str(fee/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
+        
+        return (txt, challenge)
         
     def scan_qr(self, on_complete):
         if platform != 'android':

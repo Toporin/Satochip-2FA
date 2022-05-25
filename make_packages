@@ -2,7 +2,7 @@
 #Install pure python modules in the directory
 python3 -m pip install -r ./requirements.txt -t .
 
-# clone cryptos module from github  
+# clone cryptos module from github
 mkdir tmp
 pushd ./tmp
 git clone https://github.com/Alcofribas4/pybitcointools.git
@@ -12,7 +12,7 @@ popd
 popd
 rm -rf ./tmp
 
-# clone ethereum-lists/chains module from github  
+# clone ethereum-lists/chains module from github
 git clone https://github.com/ethereum-lists/chains.git
 
 # In the chains folder, remove all files & folders except for _data folder:

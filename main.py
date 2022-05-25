@@ -1,8 +1,8 @@
 #
 # Satochip 2-Factor-Authentication app for the Satochip Bitcoin Hardware Wallet
 # (c) 2019 by Toporin - 16DMCk4WUaHofchAhpMaQS4UPm4urcy2dN
-# Sources available on https://github.com/Toporin	
-# 				 
+# Sources available on https://github.com/Toporin
+#
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
 # published by the Free Software Foundation, either version 3 of the
@@ -51,17 +51,18 @@ from cryptos import transaction, main #deserialize
 from cryptos.coins import Bitcoin, BitcoinCash, Litecoin
 from cryptos.main import num_to_var_int
 from cashaddress import convert # cashAddr conversion for bcash
-from xmlrpc.client import ServerProxy 
+from xmlrpc.client import ServerProxy
+from py_eth_sig_utils import eip712 # ethereum sign_typed_message
 
 #ethereum utils
-try: 
+try:
     from eth_utils import keccak
     import rlp
     import eth_messages
     import eth_transactions
 except Exception as ex:
-    Logger.warning("Exception during ethereum package import: "+str(ex))                   
-            
+    Logger.warning("Exception during ethereum package import: "+str(ex))
+
 from TxParser import TxParser
 
 DEBUG= True
@@ -72,11 +73,11 @@ LOG_SEP="-"*60 + "\n"
 BLOCKSIZE= 16
 POLLING_INTERVAL= 5.0
 
-if DEBUG: 
+if DEBUG:
     Logger.setLevel(logging.DEBUG)
-else: 
+else:
     Logger.setLevel(logging.INFO)
-    
+
 ca_path = certifi.where()
 #print("CA Path: "+ca_path)
 context = ssl.SSLContext()
@@ -86,14 +87,14 @@ context.load_verify_locations(ca_path)
 
 SERVER_LIST= [
     'https://cosigner.electrum.org',
-    'https://cosigner.satochip.io', 
-    'http://sync.imaginary.cash:8081', 
+    'https://cosigner.satochip.io',
+    'http://sync.imaginary.cash:8081',
 ]
 if DEBUG: # debug server
     SERVER_LIST.append('https://cosigner.satochip.io:81')  #wrong port generate timeout errors
     SERVER_LIST.append('https://wrongcosigner.satochip.io')   # non-existant server
-    SERVER_LIST.append('https://www.google.com') # wrong server 
-    
+    SERVER_LIST.append('https://www.google.com') # wrong server
+
 #server_default= SERVER_LIST[0] #default
 
 myqueue = queue.Queue()
@@ -122,7 +123,7 @@ def get_message_from_server(obj, myqueue, myevent):
                     myqueue.put( (keyhash,"ERR:CONNECT") )
                     myevent.set()
         sleep(POLLING_INTERVAL)
-            
+
 class Listener():
     def __init__(self, parent):
         self.parent = parent
@@ -133,12 +134,12 @@ class Listener():
         print('In clear() myserver.server: ', myserver.server)
         myserver.server.delete(keyhash)
         self.received.remove(keyhash)
-        myevent.clear() # 
+        myevent.clear() #
 
 class Factors():
     def __init__(self):
         self.datastore = JsonStore('../data.json')
-        
+
     def add_new_factor(self,secret_2FA, label_2FA):
         mac = hmac.new(bytes.fromhex(secret_2FA), "id_2FA".encode('utf-8'), sha1)
         id_2FA_20b= mac.hexdigest()
@@ -153,7 +154,7 @@ class Factors():
                             +"idreply_2FA: "+ idreply_2FA)
         #Logger.debug("Satochip: secret_2FA"+ secret_2FA)
         #Logger.debug("Satochip: key_2FA: "+ key_2FA)
-        
+
     def remove_factor(self, id):
         if self.datastore.exists(id):
             self.datastore.delete(id)
@@ -162,7 +163,7 @@ class Servers():
     def __init__(self):
         self.server_default= None
         # on Android, stored in: /data/data/org.satochip.satochip2fa.satochip2fa/files/server.json
-        self.datastore = JsonStore('../servers.json') 
+        self.datastore = JsonStore('../servers.json')
         # add SERVER_LIST if updated
         for item in SERVER_LIST:
             if item not in self.datastore:
@@ -177,11 +178,11 @@ class Servers():
         if self.server_default is None:
             self.server_default= SERVER_LIST[0]
             self.datastore[self.server_default]['default']= True
-            
+
     def add_new_server(self, url, default=False):
         self.datastore.put(url, default=default)
         Logger.info("Satochip: \nAdded new server on "+ str(datetime.now()) + " with url: "+ url)
-    
+
     def load_list_server(self):
         myserver_list= []
         for url in self.datastore.keys():
@@ -193,23 +194,23 @@ class Server():
     def __init__(self, url):
         self.server= ServerProxy(url, allow_none=True, context=context)
         self.url= url
-        
+
     def set_url(self,url):
         self.server= ServerProxy(url, allow_none=True, context=context)
-        self.url= url       
-myserver= Server(myservers.server_default)    
-    
+        self.url= url
+myserver= Server(myservers.server_default)
+
 class OkButton(Button):
-    btn_approve_tx= StringProperty(APPROVE_TX) 
-    
+    btn_approve_tx= StringProperty(APPROVE_TX)
+
 class CancelButton(Button):
-    btn_reject_tx= StringProperty(REJECT_TX)             
+    btn_reject_tx= StringProperty(REJECT_TX)
 
 #class Satochip(GridLayout):
 class Satochip(TabbedPanel):
     btn_disabled= BooleanProperty(True)
     btn_approve_qr_disabled= BooleanProperty(True)
-    
+
     display = StringProperty('Waiting for request...')
     label_qr_data= StringProperty("Click on 'scan' button to scan a new QR code...")
     label_logs= StringProperty('Contains the tx history...\n'+LOG_SEP)
@@ -217,7 +218,7 @@ class Satochip(TabbedPanel):
     label_2FA_stored= StringProperty('')
     myserver_list= ListProperty([])
     myserver_default= StringProperty('')
-    
+
     def __init__(self, **kwargs):
         super(Satochip, self).__init__(**kwargs)
         self.listener = Listener(self)
@@ -225,11 +226,11 @@ class Satochip(TabbedPanel):
         if DEBUG:
             self.myfactors.add_new_factor(DEBUG_SECRET_2FA, "Debug-2FA")
         self.load_list_2FA()
-        
+
         # lists of servers to choose from
-        self.myserver_list= myservers.load_list_server() 
+        self.myserver_list= myservers.load_list_server()
         self.myserver_default= myservers.server_default
-        
+
         #load log history
         for record in  reversed(LoggerHistory.history):
             print(str(record))
@@ -237,7 +238,7 @@ class Satochip(TabbedPanel):
                 msg= record.getMessage()
                 if msg.startswith("[Satochip"):
                     self.label_logs+=msg.replace("[Satochip    ] ","",1) +"\n"+LOG_SEP
-    
+
     def on_server_spinner(self, new_server):
         Logger.info("Satochip: select new server: "+new_server)
         self.myserver_default= new_server
@@ -246,18 +247,18 @@ class Satochip(TabbedPanel):
         myservers.datastore.put(old_server, default=False)
         myserver.set_url(new_server)
         self.display = 'Waiting for request...'
-        
-        
+
+
     def load_list_2FA(self):
         self.label_2FA_stored="List of stored 2FA:\n\n"
         for keyhash in self.myfactors.datastore.keys():
             self.label_2FA_stored+="label: "+self.myfactors.datastore.get(keyhash)['label_2FA']+"\n"+"id: "+keyhash[0:32]+"...\n"+LOG_SEP
-        
-    def approve_tx(self, btn): 
+
+    def approve_tx(self, btn):
         letter= self.listener.postbox.pop()
         keyhash= letter[0]
         challenge= letter[1]
-        
+
         #compute  response to challenge and send back...
         reply= challenge+":"
         if (btn.text == APPROVE_TX):
@@ -267,14 +268,14 @@ class Satochip(TabbedPanel):
             self.display = "Action approved!"
             self.label_logs+= "Action approved" +"\n"+LOG_SEP
             Logger.info("Satochip: APPROVED action with hash: "+challenge+" on "+str(datetime.now()))
-        else: 
+        else:
             reply+= "00"*20
             self.display = "Tx rejected!"
             self.label_logs+= "Tx rejected" +"\n"+LOG_SEP
             Logger.info("Satochip: REJECTED tx with hash: "+challenge+" on "+str(datetime.now()))
         Logger.debug("Satochip: Challenge-response: "+ reply)
         replyhash= self.myfactors.datastore.get(keyhash)['idreply_2FA']
-          
+
         # pad & encrypt reply
         key_2FA= bytes.fromhex(self.myfactors.datastore.get(keyhash)['key_2FA'])
         iv= urandom(16)
@@ -286,22 +287,22 @@ class Satochip(TabbedPanel):
         ciphertext = iv+ciphertext
         reply_encrypt= base64.b64encode(ciphertext).decode('ascii')
         Logger.debug("Satochip: Reply_encrypt: "+reply_encrypt)
-        
+
         # send reply to server
         Logger.debug("Satochip: Sent response to: "+replyhash)
         myserver.server.put(replyhash, reply_encrypt)
         self.listener.clear(keyhash)
         self.btn_disabled= True
-        
-    
+
+
     def update(self, dt):
         # only one request at a time
         if len(self.listener.received)!=0:
             return
-         
+
         # check for message from the polling thread
         print("Satochip update...")
-        
+
         if myevent.isSet(): # we have a message waiting!
             try:
                 (keyhash, message)= myqueue.get(block=False) # non-blocking
@@ -315,32 +316,32 @@ class Satochip(TabbedPanel):
             elif message == "ERR:CONNECT":
                 self.display = "Error: cannot connect to server! \nIf this persists, select another server in settings."
                 message= None
-                myevent.clear()  
+                myevent.clear()
             else:
-                try: 
+                try:
                     self.listener.received.add(keyhash)
                     label= self.myfactors.datastore.get(keyhash)['label_2FA']
-                    txt="2FA: "+label+"\n" 
+                    txt="2FA: "+label+"\n"
                     Logger.debug("Satochip: Received challenge for: "+ keyhash)
                     Logger.debug("Satochip: Corresponding label: "+ label)
                     Logger.debug("Satochip: Challenge received: "+ message)
-                    
+
                     # decrypt message & remove padding
                     key_2FA= bytes.fromhex(self.myfactors.datastore.get(keyhash)['key_2FA'])
                     message= base64.b64decode(message)
                     iv= message[0:16]
                     ciphertext= message[16:]
-                    
+
                     decrypter = pyaes.Decrypter(pyaes.AESModeOfOperationCBC(key_2FA, iv))
                     decrypted = decrypter.feed(ciphertext)
                     decrypted += decrypter.feed()
                     Logger.debug("Satochip: Challenge decrypted: "+decrypted.decode('ascii'))
-                    message= json.loads(decrypted) 
+                    message= json.loads(decrypted)
                     if 'action' in message:
                         action= message['action']
                     else:
                         action= "sign_tx"
-                    
+
                     if action=="reset_seed":
                         authentikeyx= message['authentikeyx']
                         txt+= "Request to reset the seed!\nAuthentikey:"+authentikeyx
@@ -350,7 +351,7 @@ class Satochip(TabbedPanel):
                         try:
                             id_2FA_20b= self.myfactors.datastore.get(keyhash)['id_2FA_20b']
                         except Exception as ex: # not supported for 2FA created in app version <=0.8/0.9
-                            id_2FA_20b= keyhash 
+                            id_2FA_20b= keyhash
                         challenge= id_2FA_20b + 44*'AA'
                     elif action == "sign_msg":
                         msg= message['msg']
@@ -360,16 +361,16 @@ class Satochip(TabbedPanel):
                             paddedmsgbytes = headersize + altcoin.encode('utf8') + b" Signed Message:\n" + num_to_var_int(len(msg)) + bytes(msg, 'utf-8')
                         else:
                             altcoin= "Bitcoin"
-                            paddedmsgbytes = b"\x18Bitcoin Signed Message:\n" + num_to_var_int(len(msg)) + bytes(msg, 'utf-8')          
+                            paddedmsgbytes = b"\x18Bitcoin Signed Message:\n" + num_to_var_int(len(msg)) + bytes(msg, 'utf-8')
                         txt+= "Request to sign "+ altcoin +" message:\n"+msg+"\n"
                         paddedmsghash= sha256(paddedmsgbytes).hexdigest()
                         challenge= paddedmsghash + 32*"BB"
                     elif action== "sign_tx":
                         (txt, challenge)= self.action_sign_tx(keyhash, message)
                         # is_segwit= message['sw']
-                        # txt="2FA: "+label+"\n" 
-                            
-                        # # coin type: 
+                        # txt="2FA: "+label+"\n"
+
+                        # # coin type:
                         # coin_type= message['ct']
                         # if coin_type==0:
                             # coin= Bitcoin(False)
@@ -385,21 +386,21 @@ class Satochip(TabbedPanel):
                         # else:
                             # Logger.warning("Satochip: Coin not (yet) supported: "+str(coin_type))
                             # coin=BaseCoin()
-                        # txt+="Coin: "+coin.display_name+"\n" 
-                        
+                        # txt+="Coin: "+coin.display_name+"\n"
+
                         # # parse tx into a clear message for approval
                         # pre_tx_hex=message['tx']
                         # pre_tx= bytes.fromhex(pre_tx_hex)
                         # pre_hash_hex=  sha256(sha256(pre_tx).digest()).hexdigest()
                         # challenge= pre_hash_hex+ 32*'00'
                         # if is_segwit:
-                            
+
                             # #parse segwit tx
                             # txin_type=message['ty']
                             # txparser= TxParser(pre_tx)
                             # while not txparser.is_parsed():
                                 # chunk= txparser.parse_segwit_transaction()
-                                
+
                             # Logger.debug("Satochip: hashPrevouts: "+txparser.hashPrevouts.hex())
                             # Logger.debug("Satochip: hashSequence: "+txparser.hashSequence.hex())
                             # Logger.debug("Satochip: txOutHash: "+txparser.txOutHash[::-1].hex())
@@ -410,7 +411,7 @@ class Satochip(TabbedPanel):
                             # Logger.debug("Satochip: hashOutputs: "+txparser.hashOutputs.hex())
                             # Logger.debug("Satochip: nLocktime: "+txparser.nLocktime.hex())
                             # Logger.debug("Satochip: nHashType: "+txparser.nHashType.hex())
-                            
+
                             # script= txparser.inputScript.hex()
                             # if txin_type== 'p2wpkh':
                                 # hash= transaction.output_script_to_h160(script)
@@ -436,10 +437,10 @@ class Satochip(TabbedPanel):
                                 # Logger.debug("Satochip: txin type: "+ txin_type +" address: "+addr)
                             # else:
                                 # addr= "unsupported script:"+script+"\n"
-                            
+
                             # txt+="input:\n"
                             # txt+= "    "+"address: "+addr+" spent: "+str(txparser.inputAmountLong/100000)+"\n"  #satoshi to mBtc
-                                                                
+
                            # #parse outputs
                             # outputs_hex= message['txo']
                             # outputs= bytes.fromhex(outputs_hex)
@@ -447,7 +448,7 @@ class Satochip(TabbedPanel):
                             # outparser= TxParser(outputs)
                             # while not outparser.is_parsed():
                                 # chunk= outparser.parse_outputs()
-                            
+
                             # nb_outs= outparser.txCurrentOutput
                             # Logger.debug("Satochip: nbrOutputs: "+str(nb_outs))
                             # #txt+="nb_outputs: "+str(nb_outs) + "\n"
@@ -455,7 +456,7 @@ class Satochip(TabbedPanel):
                             # txt+="outputs ("+ str(nb_outs) +"):\n"
                             # amnt_out=0
                             # for i in range(nb_outs):
-                                # amnt= outparser.outAmounts[i]  
+                                # amnt= outparser.outAmounts[i]
                                 # amnt_out+=amnt
                                 # script= outparser.outScripts[i].hex()
                                 # is_data_script=False
@@ -471,7 +472,7 @@ class Satochip(TabbedPanel):
                                 # elif script.startswith( '0020' ): #p2wsh
                                     # hash= bytes.fromhex(script[4:])
                                     # addr= coin.hash_to_segwit_addr(hash)
-                                # elif script.startswith( '6a' ): # op_return data script  
+                                # elif script.startswith( '6a' ): # op_return data script
                                     # if script.startswith( '6a04534c5000' ): # SLP token
                                         # try:
                                             # addr= self.parse_slp_script(script)
@@ -481,24 +482,24 @@ class Satochip(TabbedPanel):
                                     # else:
                                         # addr= "DATA: "+  bytes.fromhex(script[6:]).decode('utf-8', errors='backslashreplace') # errors='ignore', 'backslashreplace', 'replace'
                                     # is_data_script= True
-                                # else: 
+                                # else:
                                     # addr= "unsupported script:"+script+"\n"
-                                    
+
                                 # if coin_type==145 and not is_data_script:
                                         # addr= convert.to_cash_address(addr) #cashAddr conversion
                                         # addr= addr.split(":",1)[-1] #remove prefix
-                                    
+
                                 # Logger.debug("Satochip: address: "+addr)
                                 # txt+= "    "+"address: "+addr+" spent: "+str(amnt/100000)+"\n"  #satoshi to mBtc
                             # txt+= "    "+"total: "+str(amnt_out/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
-                            
+
                             # if hashOutputs!=txparser.hashOutputs.hex():
                                 # txt+= "Warning! inconsistent output hashes!\n"
-                        
+
                         # # non-segwit tx
                         # else:
                             # pre_tx_dic={}
-                            # try: 
+                            # try:
                                 # pre_tx_dic= transaction.deserialize(pre_tx)
                             # except Exception as e:
                                 # Logger.warning("Exception during (non-segwit) tx parsing: "+str(e))
@@ -506,8 +507,8 @@ class Satochip(TabbedPanel):
                                 # self.listener.clear(keyhash)
                                 # return
                             # Logger.debug("Satochip: pre_tx_dic: "+str(pre_tx_dic))
-                            
-                            # # inputs 
+
+                            # # inputs
                             # amount_in=0
                             # ins= pre_tx_dic['ins']
                             # nb_ins= len(ins)
@@ -517,7 +518,7 @@ class Satochip(TabbedPanel):
                             # for i in ins:
                                 # script= i['script'].hex()
                                 # Logger.debug("Satochip: input script: "+script)
-                                
+
                                 # # recover script and corresponding addresse
                                 # if script=="":# all input scripts are removed for signing except 1
                                     # outpoint= i['outpoint']
@@ -531,7 +532,7 @@ class Satochip(TabbedPanel):
                                     # val= out['value']
                                     # script= out['script']
                                     # addr= coin.scripttoaddr(script)
-                                    # addr= "(empty for signing: "+ addr[0:16] +"...)" 
+                                    # addr= "(empty for signing: "+ addr[0:16] +"...)"
                                 # if script.endswith("ae"):#m-of-n pay-to-multisig
                                     # m= int(script[0:2], 16)-80
                                     # n= int(script[-4:-2], 16)-80
@@ -541,10 +542,10 @@ class Satochip(TabbedPanel):
                                 # else: #p2pkh, p2sh
                                     # addr= coin.scripttoaddr(script)
                                     # Logger.debug("Satochip: address: "+addr)
-                                
+
                                 # # get value from blockchain explorer
                                 # val=0
-                                # try: 
+                                # try:
                                     # unspent= coin.unspent_web(addr)
                                     # for d in unspent:
                                         # val+=d['value']
@@ -555,15 +556,15 @@ class Satochip(TabbedPanel):
                                         # # hs= sha256(bytes.fromhex(script)).digest()
                                         # # hs= hs[::-1]
                                         # # balances=  coin.balance(True, hs.hex())
-                                        # # val= sum(balances)                                  
+                                        # # val= sum(balances)
                                     # # except Exception as e:
-                                        # # Logger.warning("Exception during coin.balance request: "+str(e))                            
-                                
-                                # txt+="    "+"address: "+addr+" balance: "+str(val/100000) +"\n" 
+                                        # # Logger.warning("Exception during coin.balance request: "+str(e))
+
+                                # txt+="    "+"address: "+addr+" balance: "+str(val/100000) +"\n"
                                 # amount_in+=val
                             # txt+="    "+"total: "+str(amount_in/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
-                            
-                            # # outputs    
+
+                            # # outputs
                             # fee=0
                             # amount_out=0
                             # outs= pre_tx_dic['outs']
@@ -585,7 +586,7 @@ class Satochip(TabbedPanel):
                                 # elif script.startswith( '0020' ):#p2wsh
                                     # hash= bytes.fromhex(script[4:])
                                     # addr= coin.hash_to_segwit_addr(hash)
-                                # else: 
+                                # else:
                                     # addr= "unsupported script:"+script+"\n"
                                 # txt+="    "+"address: "+addr+" spent: "+str(val/100000)+"\n" #satoshi to mBtc
                                 # amount_out+=val
@@ -593,30 +594,65 @@ class Satochip(TabbedPanel):
                             # fee= amount_in-amount_out
                             # if fee >=0:
                                 # txt+="    "+"fees:  "+str(fee/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
-                    
+
                     # sign message hash, currently only supports Ethereum
                     elif action== "sign_msg_hash":
-                        msg= message['msg']
-                        # if message is in hex-format, convert it to utf8 string
-                        if msg.startswith('0x'):
-                            msg= msg[len('0x'):]
-                            try: 
-                                int(msg, 16) # check if hex
-                                import codecs
-                                msg= codecs.decode(msg, "hex").decode('utf-8')
-                            except Exception as ex:
-                                msg= message['msg']
-                        hash= message['hash']
                         altcoin= "Ethereum"
-                        
-                        paddedmsghash= bytes(eth_messages.defunct_hash_message(text=msg)).hex() #paddedmsghash= bytes(messages.defunct_hash_message(text=msg)).hex() #sha256(paddedmsgbytes).hexdigest()
-                        Logger.info("Msg hash1: "+hash)
-                        Logger.info("Msg hash2: "+paddedmsghash)
-                        txt= "Request to sign "+ altcoin +" message:\n"+msg+"\n"
-                        if paddedmsghash!=hash:
-                            txt+= "Warning: inconsistent msg hashes! \nYou should reject the request unless you know what you are doing!"
-                        challenge= hash + 32*"CC"
-                    
+                        hash= message['hash']
+                        msg= message['msg']
+                        msg_type= message.get('msg_type','PERSONAL_MESSAGE')
+                        if msg_type== "PERSONAL_MESSAGE" or msg_type== "MESSAGE":
+                            # if message is in hex-format, convert it to utf8 string
+                            if msg.startswith('0x'):
+                                msg= msg[len('0x'):]
+                                try:
+                                    int(msg, 16) # check if hex
+                                    import codecs
+                                    msg= codecs.decode(msg, "hex").decode('utf-8')
+                                except Exception as ex:
+                                    msg= message['msg']
+                            paddedmsghash= bytes(eth_messages.defunct_hash_message(text=msg)).hex() #paddedmsghash= bytes(messages.defunct_hash_message(text=msg)).hex() #sha256(paddedmsgbytes).hexdigest()
+                            Logger.info("Msg hash1: "+hash)
+                            Logger.info("Msg hash2: "+paddedmsghash)
+                            txt= "Request to sign "+ altcoin +" message:\n"+msg+"\n"
+                            if paddedmsghash!=hash:
+                                txt+= "Warning: inconsistent msg hashes! \nYou should reject the request unless you know what you are doing!"
+                            challenge= hash + 32*"CC"
+
+                        elif msg_type== "TYPED_MESSAGE":
+                            try:
+                                txt= "Request to sign "+ altcoin +" typed message:\n\n"+msg+"\n\n"
+                                json_data= json.loads(msg)
+                                # check if domainSeparatorHex, hashStructMessageHex are present...
+                                if "typedData" in json_data:
+                                    typed_data= json_data["typedData"]
+                                else:
+                                    typed_data= json_data
+                                try:
+                                    Logger.info(f"typed_data= {typed_data}")
+                                    msg_hash= eip712.encoding.encode_typed_data(typed_data).hex()
+                                    if msg_hash!=hash:
+                                        Logger.info(f"inconsistent msg hashes! computed hash: {msg_hash}")
+                                        txt+= "Warning: inconsistent msg hashes! \nYou should reject the request unless you know what you are doing!"
+                                except Exception as ex:
+                                    # fallback: use domainSeparatorHex & hashStructMessageHex hashes for blind Signing
+                                    # This is NOT compliant with walletconnect specifications...
+                                    Logger.info(f"Exception while parsing typedData: {ex}")
+                                    domainSeparatorHex= json_data["domainSeparatorHex"]
+                                    hashStructMessageHex= json_data["hashStructMessageHex"]
+                                    msg_hash= keccak(bytes.fromhex('19') +
+                                                        bytes.fromhex('01') +
+                                                        bytes.fromhex(domainSeparatorHex) +
+                                                        bytes.fromhex(hashStructMessageHex)).hex()
+                                    msg_txt= f"WARNING: could not parse typed_data (error: {ex}).\nBlind signing using hash: {hash}"
+                                    if msg_hash!=hash:
+                                        txt+= "Warning: inconsistent msg hashes! \nYou should reject the request unless you know what you are doing!"
+                                    Logger.info(f"Blind signing using msg_hash: {msg_hash}")
+                            except Exception as ex:
+                                txt= f"Failed to parse typed message with error: {ex}. \nYou should reject the request unless you know what you are doing!"
+                                Logger.info(f"Exception while parsing typed_message: {ex}")
+                            challenge= hash + 32*"CC"
+
                     elif action== "sign_tx_hash":
                         # TODO: put in function
                         tx= message['tx']
@@ -628,22 +664,22 @@ class Satochip(TabbedPanel):
                         tx_gas= txrlp.gas
                         tx_gas_price=txrlp.gas_price
                         tx_to='0x'+txrlp.to.hex()
-                        tx_value= txrlp.value 
+                        tx_value= txrlp.value
                         tx_data='0x'+ txrlp.data.hex()
                         #tx_chainid= txrlp.v
-                        tx_chainid= message.get('chainId',  txrlp.v) # 
-                        try: 
+                        tx_chainid= message.get('chainId',  txrlp.v) #
+                        try:
                             tx_from= '0x'+message['from']
                         except Exception as ex:
                             tx_from= '(not supported)'
-                        
+
                         # reencode with chainId (EIP155)
                         tx2= eth_transactions.Transaction(txrlp.nonce, txrlp.gas_price, txrlp.gas, txrlp.to, txrlp.value, txrlp.data, tx_chainid, 0, 0)
                         txraw= rlp.encode(tx2)
                         print("txraw: " + txraw.hex())
                         tx_hash = keccak(txraw).hex()
                         print("tx_hash: " + tx_hash)
-                        
+
                         try:
                             chain_file= "./chains/_data/chains/eip155-"+str(tx_chainid)+".json"
                             Logger.info("ChainId file:"+chain_file)
@@ -655,29 +691,29 @@ class Satochip(TabbedPanel):
                             tx_coinname= "(unknown)"
                             tx_coinsymbol= "(unknown)"
                             tx_coindecimals= 0
-                            
-                        txt="2FA: "+label+"\n" 
-                        txt+="Coin: "+tx_coinname+"\n" 
+
+                        txt="2FA: "+label+"\n"
+                        txt+="Coin: "+tx_coinname+"\n"
                         txt+="From: "+tx_from+"\n"
-                        txt+="To: "+tx_to+"\n" 
-                        txt+="Value: "+ str(tx_value/(10**tx_coindecimals)) +" " +tx_coinsymbol+"\n" 
-                        txt+="Gas: "+str(tx_gas)+"\n" 
+                        txt+="To: "+tx_to+"\n"
+                        txt+="Value: "+ str(tx_value/(10**tx_coindecimals)) +" " +tx_coinsymbol+"\n"
+                        txt+="Gas: "+str(tx_gas)+"\n"
                         txt+="Gas price: "+str(tx_gas_price)+"\n"
-                        txt+="Max fee: "+str(tx_gas*tx_gas_price/(10**tx_coindecimals)) +" " +tx_coinsymbol+"\n" 
+                        txt+="Max fee: "+str(tx_gas*tx_gas_price/(10**tx_coindecimals)) +" " +tx_coinsymbol+"\n"
                         txt+="Data: "+tx_data+"\n" #todo: parse data
                         txt+="Hash: "+tx_hash+"\n" #debug
                         if tx_hash!=hash:
                             txt+= "Warning! inconsistent tx hashes! \nYou should reject the request unless you know what you are doing!"
                         challenge= hash + 32*"CC"
-                        
-                    else: 
+
+                    else:
                         txt= "Unsupported operation: "+decrypted.decode('ascii')
-                    
+
                     # 2FA challenges:
                     # - Tx approval: [ 32b Tx hash | 32-bit 0x00-padding ]
                     # - ECkey import:[ 32b coordx  | 32-bit (0x10^key_nb)-padding ]
                     # - ECkey reset: [ 32b coordx  | 32-bit (0x20^key_nb)-padding ]
-                    # - 2FA reset:   [ 20b 2FA_ID  | 44-bit 0xAA-padding ]  
+                    # - 2FA reset:   [ 20b 2FA_ID  | 44-bit 0xAA-padding ]
                     # - Seed reset:  [ 32b authentikey-coordx  | 32-bit 0xFF-padding ]
                     # - Msg signing: [ 32b SHA26(btcHeader+msg) | 32-bit 0xBB-padding ]
                     # - Hash signing: [ 32b hash | 32-bit 0xBB-padding]
@@ -685,7 +721,7 @@ class Satochip(TabbedPanel):
                     self.display = txt
                     self.label_logs+= txt +"\n"
                     Logger.info("Satochip: \nNew challenge: "+challenge+"\nReceived on "+str(datetime.now())+":\n"+txt)
-                    
+
                     self.btn_disabled= False
                     return
                 except Exception as ex:
@@ -694,11 +730,11 @@ class Satochip(TabbedPanel):
                     self.label_logs+= txt
                     Logger.warning(txt)
                     self.listener.clear(keyhash) # remove faulty request from server
-                    
+
     # TODO: TEST CHANGES!
     def action_sign_tx(self, keyhash, message):
         is_segwit= message['sw']
-        # coin type: 
+        # coin type:
         coin_type= message['ct']
         if coin_type==0:
             coin= Bitcoin(False)
@@ -714,21 +750,21 @@ class Satochip(TabbedPanel):
         else:
             Logger.warning("Satochip: Coin not (yet) supported: "+str(coin_type))
             coin=BaseCoin()
-        txt+="Coin: "+coin.display_name+"\n" 
-        
+        txt+="Coin: "+coin.display_name+"\n"
+
         # parse tx into a clear message for approval
         pre_tx_hex=message['tx']
         pre_tx= bytes.fromhex(pre_tx_hex)
         pre_hash_hex=  sha256(sha256(pre_tx).digest()).hexdigest()
         challenge= pre_hash_hex+ 32*'00'
         if is_segwit:
-            
+
             #parse segwit tx
             txin_type=message['ty']
             txparser= TxParser(pre_tx)
             while not txparser.is_parsed():
                 chunk= txparser.parse_segwit_transaction()
-                
+
             Logger.debug("Satochip: hashPrevouts: "+txparser.hashPrevouts.hex())
             Logger.debug("Satochip: hashSequence: "+txparser.hashSequence.hex())
             Logger.debug("Satochip: txOutHash: "+txparser.txOutHash[::-1].hex())
@@ -739,7 +775,7 @@ class Satochip(TabbedPanel):
             Logger.debug("Satochip: hashOutputs: "+txparser.hashOutputs.hex())
             Logger.debug("Satochip: nLocktime: "+txparser.nLocktime.hex())
             Logger.debug("Satochip: nHashType: "+txparser.nHashType.hex())
-            
+
             script= txparser.inputScript.hex()
             if txin_type== 'p2wpkh':
                 hash= transaction.output_script_to_h160(script)
@@ -765,10 +801,10 @@ class Satochip(TabbedPanel):
                 Logger.debug("Satochip: txin type: "+ txin_type +" address: "+addr)
             else:
                 addr= "unsupported script:"+script+"\n"
-            
+
             txt+="input:\n"
             txt+= "    "+"address: "+addr+" spent: "+str(txparser.inputAmountLong/100000)+"\n"  #satoshi to mBtc
-                                                
+
            #parse outputs
             outputs_hex= message['txo']
             outputs= bytes.fromhex(outputs_hex)
@@ -776,7 +812,7 @@ class Satochip(TabbedPanel):
             outparser= TxParser(outputs)
             while not outparser.is_parsed():
                 chunk= outparser.parse_outputs()
-            
+
             nb_outs= outparser.txCurrentOutput
             Logger.debug("Satochip: nbrOutputs: "+str(nb_outs))
             #txt+="nb_outputs: "+str(nb_outs) + "\n"
@@ -784,7 +820,7 @@ class Satochip(TabbedPanel):
             txt+="outputs ("+ str(nb_outs) +"):\n"
             amnt_out=0
             for i in range(nb_outs):
-                amnt= outparser.outAmounts[i]  
+                amnt= outparser.outAmounts[i]
                 amnt_out+=amnt
                 script= outparser.outScripts[i].hex()
                 is_data_script=False
@@ -800,7 +836,7 @@ class Satochip(TabbedPanel):
                 elif script.startswith( '0020' ): #p2wsh
                     hash= bytes.fromhex(script[4:])
                     addr= coin.hash_to_segwit_addr(hash)
-                elif script.startswith( '6a' ): # op_return data script  
+                elif script.startswith( '6a' ): # op_return data script
                     if script.startswith( '6a04534c5000' ): # SLP token
                         try:
                             addr= self.parse_slp_script(script)
@@ -810,24 +846,24 @@ class Satochip(TabbedPanel):
                     else:
                         addr= "DATA: "+  bytes.fromhex(script[6:]).decode('utf-8', errors='backslashreplace') # errors='ignore', 'backslashreplace', 'replace'
                     is_data_script= True
-                else: 
+                else:
                     addr= "unsupported script:"+script+"\n"
-                    
+
                 if coin_type==145 and not is_data_script:
                         addr= convert.to_cash_address(addr) #cashAddr conversion
                         addr= addr.split(":",1)[-1] #remove prefix
-                    
+
                 Logger.debug("Satochip: address: "+addr)
                 txt+= "    "+"address: "+addr+" spent: "+str(amnt/100000)+"\n"  #satoshi to mBtc
             txt+= "    "+"total: "+str(amnt_out/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
-            
+
             if hashOutputs!=txparser.hashOutputs.hex():
                 txt+= "Warning! inconsistent output hashes!\n"
-        
+
         # non-segwit tx
         else:
             pre_tx_dic={}
-            try: 
+            try:
                 pre_tx_dic= transaction.deserialize(pre_tx)
             except Exception as e:
                 Logger.warning("Exception during (non-segwit) tx parsing: "+str(e))
@@ -835,8 +871,8 @@ class Satochip(TabbedPanel):
                 self.listener.clear(keyhash) # TODO: remove & catch in update()
                 return
             Logger.debug("Satochip: pre_tx_dic: "+str(pre_tx_dic))
-            
-            # inputs 
+
+            # inputs
             amount_in=0
             ins= pre_tx_dic['ins']
             nb_ins= len(ins)
@@ -846,7 +882,7 @@ class Satochip(TabbedPanel):
             for i in ins:
                 script= i['script'].hex()
                 Logger.debug("Satochip: input script: "+script)
-                
+
                 # recover script and corresponding addresse
                 if script=="":# all input scripts are removed for signing except 1
                     outpoint= i['outpoint']
@@ -860,7 +896,7 @@ class Satochip(TabbedPanel):
                     val= out['value']
                     script= out['script']
                     addr= coin.scripttoaddr(script)
-                    addr= "(empty for signing: "+ addr[0:16] +"...)" 
+                    addr= "(empty for signing: "+ addr[0:16] +"...)"
                 if script.endswith("ae"):#m-of-n pay-to-multisig
                     m= int(script[0:2], 16)-80
                     n= int(script[-4:-2], 16)-80
@@ -870,10 +906,10 @@ class Satochip(TabbedPanel):
                 else: #p2pkh, p2sh
                     addr= coin.scripttoaddr(script)
                     Logger.debug("Satochip: address: "+addr)
-                
+
                 # get value from blockchain explorer
                 val=0
-                try: 
+                try:
                     unspent= coin.unspent_web(addr)
                     for d in unspent:
                         val+=d['value']
@@ -884,15 +920,15 @@ class Satochip(TabbedPanel):
                         # hs= sha256(bytes.fromhex(script)).digest()
                         # hs= hs[::-1]
                         # balances=  coin.balance(True, hs.hex())
-                        # val= sum(balances)                                  
+                        # val= sum(balances)
                     # except Exception as e:
-                        # Logger.warning("Exception during coin.balance request: "+str(e))                            
-                
-                txt+="    "+"address: "+addr+" balance: "+str(val/100000) +"\n" 
+                        # Logger.warning("Exception during coin.balance request: "+str(e))
+
+                txt+="    "+"address: "+addr+" balance: "+str(val/100000) +"\n"
                 amount_in+=val
             txt+="    "+"total: "+str(amount_in/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
-            
-            # outputs    
+
+            # outputs
             fee=0
             amount_out=0
             outs= pre_tx_dic['outs']
@@ -914,7 +950,7 @@ class Satochip(TabbedPanel):
                 elif script.startswith( '0020' ):#p2wsh
                     hash= bytes.fromhex(script[4:])
                     addr= coin.hash_to_segwit_addr(hash)
-                else: 
+                else:
                     addr= "unsupported script:"+script+"\n"
                 txt+="    "+"address: "+addr+" spent: "+str(val/100000)+"\n" #satoshi to mBtc
                 amount_out+=val
@@ -922,9 +958,9 @@ class Satochip(TabbedPanel):
             fee= amount_in-amount_out
             if fee >=0:
                 txt+="    "+"fees:  "+str(fee/100000)+" m"+coin.coin_symbol+"\n"  #satoshi to mBtc
-        
+
         return (txt, challenge)
-        
+
     def scan_qr(self, on_complete):
         if platform != 'android':
             print("Qr code scanning is not supported!")
@@ -950,14 +986,14 @@ class Satochip(TabbedPanel):
                 activity.unbind(on_activity_result=on_qr_result)
         activity.bind(on_activity_result=on_qr_result)
         PythonActivity.mActivity.startActivityForResult(intent, 0)
-    
+
     def on_qr(self, data):
         self.label_qr_data= data.strip()
         self.btn_approve_qr_disabled=False
-        
+
     def on_approve_qr(self):
-        try: 
-            secret_2FA= bytearray.fromhex(self.label_qr_data) #check if hex 
+        try:
+            secret_2FA= bytearray.fromhex(self.label_qr_data) #check if hex
             self.myfactors.add_new_factor(self.label_qr_data, self.label_2FA_label)
             self.label_qr_data= "QR code added!"
             self.label_logs+= "Second factor added\nlabel: "+self.label_2FA_label+"\n"+LOG_SEP
@@ -967,24 +1003,24 @@ class Satochip(TabbedPanel):
             Logger.warning("Satochip: Error: the qr code should provide a hexadecimal value")
             self.label_qr_data= "Error: code should be a hexadecimal value"
             self.label_logs+= "Error: the qr code should provide a hexadecimal value"+"\n"+LOG_SEP
-            
+
         self.btn_approve_qr_disabled=True
-        
+
     def parse_slp_script(self, script):
         ''' Basic script parsing for SLP tokens
-           
-           See https://github.com/simpleledger/slp-specifications/blob/master/slp-token-type-1.md#formatting 
-           
+
+           See https://github.com/simpleledger/slp-specifications/blob/master/slp-token-type-1.md#formatting
+
            keywords arg:
                 script: hex script to parse
-           returns: 
+           returns:
                 a human-readable description of the SLP script
         '''
         dic_token_type={1:'token', 2:'security token', 3:'voting token', 4:'ticketing token'}
         txt=''
         offset=0
         script_size= len(script)
-        
+
         def get_array_size(script, offset):
             array_size= int( script[offset:(offset+2)], 16)
             if (array_size>0 and array_size<76):
@@ -997,19 +1033,19 @@ class Satochip(TabbedPanel):
                 new_offset= offset+6
             elif  (array_size== 0x4e):
                 array_size= ( int( script[(offset+2):(offset+4)], 16) +
-                                    int( script[(offset+4):(offset+6)], 16)*256 + 
-                                    int( script[(offset+6):(offset+8)], 16)*65536 + 
+                                    int( script[(offset+4):(offset+6)], 16)*256 +
+                                    int( script[(offset+6):(offset+8)], 16)*65536 +
                                     int( script[(offset+8):(offset+10)], 16)*16777216 )
                 new_offset= offset+10
-            else: 
+            else:
                 raise Exception(f'Error during SLP script parsing: bad opcode {hex(array_size)} !')
             return (array_size, new_offset)
-            
+
         def get_array(script, offset, size):
             array= script[offset:(offset+2*size)]
             new_offset= offset+2*size
             return (array, new_offset)
-        
+
         if script.startswith( '6a04534c5000' ):
             lokad_id= "04534c5000"
             offset+= 12
@@ -1017,11 +1053,11 @@ class Satochip(TabbedPanel):
             token_type, offset= get_array(script, offset, token_type_size)
             token_type= int(token_type, 16)
             token_type_str= dic_token_type.get(token_type, 'unknown_type token')
-            transaction_type_size, offset = get_array_size(script, offset) 
+            transaction_type_size, offset = get_array_size(script, offset)
             transaction_type, offset= get_array(script, offset, transaction_type_size)
             transaction_type_str= bytes.fromhex(transaction_type).decode('utf-8', 'backslashreplace')
             txt+= transaction_type_str + ' SLP '  + token_type_str
-            
+
             if (transaction_type=='47454e45534953'): # GENESIS
                 token_ticker_size, offset = get_array_size(script, offset)
                 token_ticker, offset= get_array(script, offset, token_ticker_size)
@@ -1030,7 +1066,7 @@ class Satochip(TabbedPanel):
                 token_name_size, offset = get_array_size(script, offset)
                 token_name, offset= get_array(script, offset, token_name_size)
                 token_name_str= bytes.fromhex(token_name).decode('utf-8', 'backslashreplace')
-                txt+= '\n' + 16*' ' + ' with name: ' + token_name_str 
+                txt+= '\n' + 16*' ' + ' with name: ' + token_name_str
                 token_document_url_size, offset = get_array_size(script, offset)
                 token_document_url, offset= get_array(script, offset, token_document_url_size)
                 token_document_hash_size, offset = get_array_size(script, offset)
@@ -1041,14 +1077,14 @@ class Satochip(TabbedPanel):
                     pass
                 else:
                     return 'Error during SLP script parsing: bad token_document_hash_size!'
-                decimals_size, offset = get_array_size(script, offset)#= int( script[offset:(offset+2)], 16) ; 
+                decimals_size, offset = get_array_size(script, offset)#= int( script[offset:(offset+2)], 16) ;
                 decimals, offset= get_array(script, offset, decimals_size)
-                decimals=  int( decimals, 16) 
+                decimals=  int( decimals, 16)
                 txt+= '\n' + 16*' ' + ' with decimals: ' + str(decimals)
                 mint_baton_vout_size, offset = get_array_size(script, offset)
                 if (mint_baton_vout_size==1):
                     mint_baton_vout, offset= get_array(script, offset, mint_baton_vout_size)
-                    mint_baton_vout= int( mint_baton_vout, 16) 
+                    mint_baton_vout= int( mint_baton_vout, 16)
                     txt+= '\n' + 16*' ' + ' with unique issuance: ' + 'NO'
                 elif (mint_baton_vout_size==0):
                     txt+= '\n' + 16*' ' + ' with unique issuance: ' + 'YES'
@@ -1056,10 +1092,10 @@ class Satochip(TabbedPanel):
                     return 'Error during SLP script parsing: bad mint_baton_vout_size!'
                 initial_token_mint_quantity_size, offset = get_array_size(script, offset)
                 initial_token_mint_quantity, offset= get_array(script, offset, initial_token_mint_quantity_size)
-                initial_token_mint_quantity= int( initial_token_mint_quantity, 16) 
+                initial_token_mint_quantity= int( initial_token_mint_quantity, 16)
                 txt+= '\n' + 16*' ' + ' with initial issuance: ' + str(initial_token_mint_quantity/(10**decimals)) + 16*' '
                 txt+= '\n' + 16*' ' + ' with ' # for the spent: value
-                
+
             elif (transaction_type=='53454e44'):  #SEND
                 token_id_size, offset = get_array_size(script, offset)
                 if (token_id_size!=32):
@@ -1071,74 +1107,74 @@ class Satochip(TabbedPanel):
                     if (amount_size!=8):
                         return f'Error during SLP script parsing: bad amount size ({amount_size})!'
                     amount, offset = get_array(script, offset, amount_size)
-                    amount= int(amount, 16) 
+                    amount= int(amount, 16)
                     txt+= '\n' + 16*' ' + 'with amount: ' + str(amount) + 16*' '
                 txt+= '\n' + 16*' ' + 'with ' # for the spent: value
-            
+
             elif (transaction_type== '4d494e54'): # MINT
                 token_id_size, offset = get_array_size(script, offset)
                 if (token_id_size!=32):
                     return 'Error during SLP script parsing: bad ID size!'
                 token_id, offset = get_array(script, offset, token_id_size)
                 txt+= '\n' + 16*' ' + ' with ID: ' + token_id[0:16] + '...' + token_id[-16:]
-                mint_baton_vout_size, offset = get_array_size(script, offset) 
+                mint_baton_vout_size, offset = get_array_size(script, offset)
                 if (mint_baton_vout_size==1):
                     mint_baton_vout, offset = get_array(script, offset, mint_baton_vout_size)
-                    mint_baton_vout= int( mint_baton_vout, 16) 
+                    mint_baton_vout= int( mint_baton_vout, 16)
                     txt+= '\n' + 16*' ' + ' with future issuance allowed: ' + 'YES'
                 elif (mint_baton_vout_size==0):
                     txt+= '\n' + 16*' ' + ' with future issuance allowed: ' + 'NO'
                 else:
                     return f'Error during SLP script parsing: bad mint_baton_vout_size {mint_baton_vout_size}!'
-                additional_token_quantity_size, offset = get_array_size(script, offset) 
+                additional_token_quantity_size, offset = get_array_size(script, offset)
                 additional_token_quantity, offset = get_array(script, offset, additional_token_quantity_size)
-                additional_token_quantity=  int( additional_token_quantity, 16) 
+                additional_token_quantity=  int( additional_token_quantity, 16)
                 txt+= '\n' + 16*' ' + ' with token issuance: ' + str(additional_token_quantity) + 16*' '
                 txt+= '\n' + 16*' ' + ' with ' # for the spent: value
-                
+
             elif (transaction_type== '434f4d4d4954'): # COMMIT
-                token_id_size, offset = get_array_size(script, offset) 
+                token_id_size, offset = get_array_size(script, offset)
                 token_id, offset = get_array(script, offset, token_id_size)
                 txt+= '\n' + 16*' ' + ' with ID: ' + token_id[0:16] + '...' + token_id[-16:]
                 # todo: parse rest of data
-                
+
             else:
                 txt= 'unknown tx type: ' + transaction_type_str + ' SLP '  + token_type_str
-            
+
         else:
             txt+= 'Error during parsing: bad SLP script!'
-            
+
         return txt
-    
-                                   
+
+
 class TestApp(App):
     def build(self):
         self.title = 'Satochip 2-Factor Authentication App'
         root= Satochip()
-        
+
         # thread for polling server
         print("Starting polling thread")
         t = threading.Thread( target=get_message_from_server, args = (root, myqueue, myevent) )
         t.daemon = True
         t.start()
-        
+
         Clock.schedule_interval(root.update, POLLING_INTERVAL)
         return root
 
 # on platform where qr code scanning is not (yet) supported, it is possible to copy/paste the 2FA key via a popup windows...
 class SaveDialog(Popup):
 
-    def __init__(self,my_widget,**kwargs): 
+    def __init__(self,my_widget,**kwargs):
         print("Debug in")
         super(SaveDialog,self).__init__(**kwargs)
 
         self.my_widget = my_widget
-        
+
         #txt input
         self.title='Set 2FA key'
         self.content = BoxLayout(orientation="vertical")
         self.name_input = TextInput(text='enter 2FA key here...')
-        
+
         #buttons
         self.content2 = BoxLayout(orientation="horizontal")
         self.save_button = Button(text='Save')
@@ -1147,10 +1183,10 @@ class SaveDialog(Popup):
         self.cancel_button.bind(on_press=self.cancel)
         self.content2.add_widget(self.save_button)
         self.content2.add_widget(self.cancel_button)
-        
+
         self.content.add_widget(self.name_input)
         self.content.add_widget(self.content2)
-         
+
     def save(self,*args):
         print("save 2FA")
         self.my_widget.label_qr_data= self.name_input.text

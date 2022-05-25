@@ -9,10 +9,11 @@ cashaddress==1.0.6
 
 #ethereum
 eth-utils==1.8.4
-eth-typing==2.2.1                 
-hexbytes==0.2.1        
+eth-typing==2.2.1
+hexbytes==0.2.1
 rlp==1.2.0
 pysha3
+py-eth-sig-utils==0.4.0 # for eip712 signatures
 #eth-keys==0.3.1
 #eth-account==0.4.0
 #py-evm==0.3.0a14
@@ -34,4 +35,3 @@ pysha3
 #rlp-1.2.0
 #toolz-0.10.0
 #urllib3-1.25.3
-

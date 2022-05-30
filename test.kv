@@ -7,22 +7,28 @@
 <CancelButton>:
     text: root.btn_reject_tx
 
-#class Satochip(TabbedPanel):            
-<Satochip>:  
+#class Satochip(TabbedPanel):
+<Satochip>:
     size_hint: 1, 1
     pos_hint: {'center_x': .5, 'center_y': .5}
     do_default_tab: False
     label_2FA_label: label_input.text
-    
+
     TabbedPanelItem:
         text: 'Tx'
         GridLayout:
             rows: 2
             cols: 1
-            Label:
-                font_size: 20
-                text: root.display
-                size_hint_y: 0.65
+            ScrollView:
+    			do_scroll_x: True
+    			do_scroll_y: True
+                Label:
+                    font_size: 20
+                    text: root.display
+                    size_hint_y: None #size_hint_y: 0.65
+        			height: self.texture_size[1]
+        			text_size: self.width, None
+        			padding: 10, 10
             BoxLayout:
                 orientation: "horizontal"
                 size_hint_y: 0.35
@@ -50,7 +56,7 @@
                             rgb: .6, .6, .6
                         Rectangle:
                             pos: self.pos
-                            size: self.size 
+                            size: self.size
                 TextInput:
                     id: label_input
                     multiline: False
@@ -66,7 +72,7 @@
                     text: "confirm QR code"
                     on_release: root.on_approve_qr()
                     disabled:root.btn_approve_qr_disabled
-    
+
     TabbedPanelItem:
         text: 'Settings'
 		#BoxLayout:
@@ -74,7 +80,7 @@
 			#Label:
 				#size_hint_y: 0.8
 				#text: root.label_2FA_stored #'Add or remove 2FA'
-		
+
 		GridLayout:
 			cols: 1
 			rows: 2
@@ -86,8 +92,8 @@
 					#height: self.texture_size[1]
 					#text_size: self.width, None
 					#padding: 10, 10
-					text:root.label_2FA_stored #'really some amazing text\n' * 100 # 
-			
+					text:root.label_2FA_stored #'really some amazing text\n' * 100 #
+
 			BoxLayout:
 				orientation: "vertical"
 				Label:
@@ -101,7 +107,7 @@
 					text: root.myserver_default
 					values: root.myserver_list
 					on_text: root.on_server_spinner(self.text)
-    
+
     TabbedPanelItem:
         text: 'Logs'
         ScrollView:
@@ -113,9 +119,9 @@
 				text_size: self.width, None
 				padding: 10, 10
 				text: root.label_logs #'really some amazing text\n' * 100
-					
+
         #RecycleView:
             #Label:
-                #size_hint: None, None    
+                #size_hint: None, None
                 #size: self.texture_size
                 #text: root.label_logs

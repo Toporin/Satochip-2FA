@@ -344,10 +344,10 @@ class Satochip(TabbedPanel):
 
                     if action=="reset_seed":
                         authentikeyx= message['authentikeyx']
-                        txt+= "Request to reset the seed!\nAuthentikey:"+authentikeyx
+                        txt+= "Request: reset the seed!\nAuthentikey:"+authentikeyx
                         challenge= authentikeyx + 32*'FF'
                     elif action == "reset_2FA":
-                        txt+= "Request to reset 2FA!\nID_2FA:"+keyhash
+                        txt+= "Request: reset 2FA!\nID_2FA:"+keyhash
                         try:
                             id_2FA_20b= self.myfactors.datastore.get(keyhash)['id_2FA_20b']
                         except Exception as ex: # not supported for 2FA created in app version <=0.8/0.9
@@ -362,11 +362,14 @@ class Satochip(TabbedPanel):
                         else:
                             altcoin= "Bitcoin"
                             paddedmsgbytes = b"\x18Bitcoin Signed Message:\n" + num_to_var_int(len(msg)) + bytes(msg, 'utf-8')
-                        txt+= "Request to sign "+ altcoin +" message:\n"+msg+"\n"
+                        txt+= "Request: sign "+ altcoin +" message \n\n"+msg+"\n"
                         paddedmsghash= sha256(paddedmsgbytes).hexdigest()
                         challenge= paddedmsghash + 32*"BB"
                     elif action== "sign_tx":
-                        (txt, challenge)= self.action_sign_tx(keyhash, message)
+                        txt+= "Request: sign transaction \n\n"
+                        (tx_txt, challenge)= self.action_sign_tx(keyhash, message)
+                        txt+= tx_txt
+
                         # is_segwit= message['sw']
                         # txt="2FA: "+label+"\n"
 
@@ -614,14 +617,14 @@ class Satochip(TabbedPanel):
                             paddedmsghash= bytes(eth_messages.defunct_hash_message(text=msg)).hex() #paddedmsghash= bytes(messages.defunct_hash_message(text=msg)).hex() #sha256(paddedmsgbytes).hexdigest()
                             Logger.info("Msg hash1: "+hash)
                             Logger.info("Msg hash2: "+paddedmsghash)
-                            txt= "Request to sign "+ altcoin +" message:\n"+msg+"\n"
+                            txt+= "Request: sign "+ altcoin +" message \n\n"+msg+"\n"
                             if paddedmsghash!=hash:
                                 txt+= "Warning: inconsistent msg hashes! \nYou should reject the request unless you know what you are doing!"
                             challenge= hash + 32*"CC"
 
                         elif msg_type== "TYPED_MESSAGE":
                             try:
-                                txt= "Request to sign "+ altcoin +" typed message:\n\n"+msg+"\n\n"
+                                txt+= "Request: sign "+ altcoin +" typed message \n\n"+msg+"\n\n"
                                 json_data= json.loads(msg)
                                 # check if domainSeparatorHex, hashStructMessageHex are present...
                                 if "typedData" in json_data:
@@ -721,9 +724,9 @@ class Satochip(TabbedPanel):
                                 tx_coinsymbol= "(unknown)"
                                 tx_coindecimals= 0
 
-                            txt= "Request to sign transaction: \n\n"
-                            txt+="2FA: "+label+"\n"
-                            txt+="Coin: "+tx_coinname+"\n\n"
+                            txt+= "Request: sign transaction \n\n"
+                            #txt+="2FA: "+label+"\n"
+                            txt+="Coin: "+tx_coinname+"\n"
                             txt+="From: "+tx_from+"\n"
                             txt+="To: "+tx_to+"\n"
                             txt+="Value: "+ str(tx_value/(10**tx_coindecimals)) +" " +tx_coinsymbol+"\n"
@@ -747,7 +750,7 @@ class Satochip(TabbedPanel):
                     else:
                         txt= "Unsupported operation: "+decrypted.decode('ascii')
                         challenge= 64*"00"
-                        
+
                     # 2FA challenges:
                     # - Tx approval: [ 32b Tx hash | 32-bit 0x00-padding ]
                     # - ECkey import:[ 32b coordx  | 32-bit (0x10^key_nb)-padding ]
@@ -764,7 +767,7 @@ class Satochip(TabbedPanel):
                     self.btn_disabled= False
                     return
                 except Exception as ex:
-                    txt= f"Error during parsing of the request!" #TODO: pretty print message
+                    txt= f"Error during parsing of the request: {ex}" #TODO: pretty print message
                     self.display = txt
                     self.label_logs+= txt
                     Logger.warning(txt)
@@ -789,7 +792,7 @@ class Satochip(TabbedPanel):
         else:
             Logger.warning("Satochip: Coin not (yet) supported: "+str(coin_type))
             coin=BaseCoin()
-        txt+="Coin: "+coin.display_name+"\n"
+        txt="Coin: "+coin.display_name+"\n"
 
         # parse tx into a clear message for approval
         pre_tx_hex=message['tx']

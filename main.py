@@ -653,62 +653,101 @@ class Satochip(TabbedPanel):
                                 Logger.info(f"Exception while parsing typed_message: {ex}")
                             challenge= hash + 32*"CC"
 
+                    # sign tx hash, currently supports Ethereum
                     elif action== "sign_tx_hash":
-                        # TODO: put in function
-                        tx= message['tx']
-                        hash= message['hash']
-                        txbytes= bytes.fromhex(tx)
-                        #tx_hash = keccak(txbytes).hex() # serialization depends on client, better deserialize and recomputes hash
-                        txrlp= rlp.decode(txbytes, eth_transactions.Transaction)
-                        tx_nonce= txrlp.nonce
-                        tx_gas= txrlp.gas
-                        tx_gas_price=txrlp.gas_price
-                        tx_to='0x'+txrlp.to.hex()
-                        tx_value= txrlp.value
-                        tx_data='0x'+ txrlp.data.hex()
-                        #tx_chainid= txrlp.v
-                        tx_chainid= message.get('chainId',  txrlp.v) #
                         try:
-                            tx_from= '0x'+message['from']
+                            # TODO: put in function
+                            tx= message['tx']
+                            hash= message['hash']
+                            txbytes= bytes.fromhex(tx)
+
+                            # parse eth tx type
+                            txfirstbyte= txbytes[0]
+                            if 0xc0 <= txfirstbyte <= 0xfe:
+                                tx_type= 0
+                                #tx_hash = keccak(txbytes).hex() # serialization depends on client, better deserialize and recomputes hash
+                                txrlp= rlp.decode(txbytes, eth_transactions.Transaction)
+                                tx_nonce= txrlp.nonce
+                                tx_gas= txrlp.gas
+                                tx_gas_price=txrlp.gas_price
+                                tx_to='0x'+txrlp.to.hex()
+                                tx_value= txrlp.value
+                                tx_data='0x'+ txrlp.data.hex()
+                                tx_chainid= message.get('chainId',  txrlp.v) #
+                                try:
+                                    tx_from= '0x'+message['from']
+                                except Exception as ex:
+                                    tx_from= '(not supported)'
+
+                                # reencode with chainId (EIP155)
+                                tx2= eth_transactions.Transaction(txrlp.nonce, txrlp.gas_price, txrlp.gas, txrlp.to, txrlp.value, txrlp.data, tx_chainid, 0, 0)
+                                txraw= rlp.encode(tx2)
+                                print("txraw: " + txraw.hex())
+                                tx_hash = keccak(txraw).hex()
+                                print("tx_hash: " + tx_hash)
+
+                            elif txfirstbyte== 0x2:
+                                tx_type= 0x2
+                                txrlp= rlp.decode(txbytes[1:], eth_transactions.TransactionEIP1559)
+                                tx_nonce= txrlp.nonce
+                                tx_gas= txrlp.gas
+                                tx_to='0x'+txrlp.to.hex()
+                                tx_value= txrlp.value
+                                tx_data='0x'+ txrlp.data.hex()
+                                tx_chainid= message.get('chainId',  txrlp.chain_id)
+                                tx_max_priority_fee_per_gas= txrlp.max_priority_fee_per_gas
+                                tx_max_fee_per_gas= txrlp.max_fee_per_gas
+                                tx_access_list= txrlp.access_list
+                                try:
+                                    tx_from= '0x'+message['from']
+                                except Exception as ex:
+                                    tx_from= '(not supported)'
+                                # compute hash
+                                tx_hash = keccak(txbytes).hex()
+                                print("tx_hash: " + tx_hash)
+
+                            else:
+                                raise Exception(f'Unsupported Ethereum transaction type: {hex(txfirstbyte)}')
+
+                            try:
+                                chain_file= "./chains/_data/chains/eip155-"+str(tx_chainid)+".json"
+                                Logger.info("ChainId file:"+chain_file)
+                                chain_store = JsonStore(chain_file)
+                                tx_coinname= chain_store.get("nativeCurrency")["name"]
+                                tx_coinsymbol= chain_store.get("nativeCurrency")["symbol"]
+                                tx_coindecimals=chain_store.get("nativeCurrency")["decimals"]
+                            except Exception as ex:
+                                tx_coinname= "(unknown)"
+                                tx_coinsymbol= "(unknown)"
+                                tx_coindecimals= 0
+
+                            txt= "Request to sign transaction: \n\n"
+                            txt+="2FA: "+label+"\n"
+                            txt+="Coin: "+tx_coinname+"\n\n"
+                            txt+="From: "+tx_from+"\n"
+                            txt+="To: "+tx_to+"\n"
+                            txt+="Value: "+ str(tx_value/(10**tx_coindecimals)) +" " +tx_coinsymbol+"\n"
+                            txt+="Gas: "+str(tx_gas)+"\n"
+                            if tx_type==0x0:
+                                txt+="Gas price: "+str(tx_gas_price)+"\n"
+                                txt+="Max fee: "+str(tx_gas*tx_gas_price/(10**tx_coindecimals)) +" " +tx_coinsymbol+"\n"
+                            elif tx_type==0x2:
+                                txt+="Max fee per gas: "+str(tx_max_fee_per_gas)+"\n"
+                                txt+="Max priority fee per gas: "+str(tx_max_priority_fee_per_gas)+"\n"
+                            txt+="Data: "+tx_data+"\n" #todo: parse data
+                            txt+="Hash: "+tx_hash+"\n" #debug
+                            if tx_hash!=hash:
+                                txt+= "\nWarning! inconsistent tx hashes! \nYou should reject the request unless you know what you are doing!"
+                            challenge= hash + 32*"CC"
+
                         except Exception as ex:
-                            tx_from= '(not supported)'
-
-                        # reencode with chainId (EIP155)
-                        tx2= eth_transactions.Transaction(txrlp.nonce, txrlp.gas_price, txrlp.gas, txrlp.to, txrlp.value, txrlp.data, tx_chainid, 0, 0)
-                        txraw= rlp.encode(tx2)
-                        print("txraw: " + txraw.hex())
-                        tx_hash = keccak(txraw).hex()
-                        print("tx_hash: " + tx_hash)
-
-                        try:
-                            chain_file= "./chains/_data/chains/eip155-"+str(tx_chainid)+".json"
-                            Logger.info("ChainId file:"+chain_file)
-                            chain_store = JsonStore(chain_file)
-                            tx_coinname= chain_store.get("nativeCurrency")["name"]
-                            tx_coinsymbol= chain_store.get("nativeCurrency")["symbol"]
-                            tx_coindecimals=chain_store.get("nativeCurrency")["decimals"]
-                        except Exception as ex:
-                            tx_coinname= "(unknown)"
-                            tx_coinsymbol= "(unknown)"
-                            tx_coindecimals= 0
-
-                        txt="2FA: "+label+"\n"
-                        txt+="Coin: "+tx_coinname+"\n"
-                        txt+="From: "+tx_from+"\n"
-                        txt+="To: "+tx_to+"\n"
-                        txt+="Value: "+ str(tx_value/(10**tx_coindecimals)) +" " +tx_coinsymbol+"\n"
-                        txt+="Gas: "+str(tx_gas)+"\n"
-                        txt+="Gas price: "+str(tx_gas_price)+"\n"
-                        txt+="Max fee: "+str(tx_gas*tx_gas_price/(10**tx_coindecimals)) +" " +tx_coinsymbol+"\n"
-                        txt+="Data: "+tx_data+"\n" #todo: parse data
-                        txt+="Hash: "+tx_hash+"\n" #debug
-                        if tx_hash!=hash:
-                            txt+= "Warning! inconsistent tx hashes! \nYou should reject the request unless you know what you are doing!"
-                        challenge= hash + 32*"CC"
+                            txt= f"Exception while parsing transaction: {ex}. \n\nYou should reject the request unless you know what you are doing!"
+                            challenge= hash + 32*"CC"
 
                     else:
                         txt= "Unsupported operation: "+decrypted.decode('ascii')
-
+                        challenge= 64*"00"
+                        
                     # 2FA challenges:
                     # - Tx approval: [ 32b Tx hash | 32-bit 0x00-padding ]
                     # - ECkey import:[ 32b coordx  | 32-bit (0x10^key_nb)-padding ]

@@ -52,11 +52,11 @@ from cryptos.coins import Bitcoin, BitcoinCash, Litecoin
 from cryptos.main import num_to_var_int
 from cashaddress import convert # cashAddr conversion for bcash
 from xmlrpc.client import ServerProxy
-from py_eth_sig_utils import eip712 # ethereum sign_typed_message
 
 #ethereum utils
 try:
     from eth_utils import keccak
+    from py_eth_sig_utils import eip712 # ethereum sign_typed_message
     import rlp
     import eth_messages
     import eth_transactions
@@ -390,14 +390,14 @@ class Satochip(TabbedPanel):
                             paddedmsghash= bytes(eth_messages.defunct_hash_message(text=msg)).hex() #paddedmsghash= bytes(messages.defunct_hash_message(text=msg)).hex() #sha256(paddedmsgbytes).hexdigest()
                             Logger.info("Msg hash1: "+hash)
                             Logger.info("Msg hash2: "+paddedmsghash)
-                            txt+= "Request: sign "+ altcoin +" message \n\n"+msg+"\n"
+                            txt+= "Request: sign "+ altcoin +" message \n\n"+msg+"\n\n"
                             if paddedmsghash!=hash:
                                 txt+= "Warning: inconsistent msg hashes! \nYou should reject the request unless you know what you are doing!"
                             challenge= hash + 32*"CC"
 
                         elif msg_type== "TYPED_MESSAGE":
                             try:
-                                txt+= "Request: sign "+ altcoin +" typed message \n\n"+msg+"\n\n"
+                                txt+= "Request: sign "+ altcoin +" typed message \n\n"
                                 json_data= json.loads(msg)
                                 # check if domainSeparatorHex, hashStructMessageHex are present...
                                 if "typedData" in json_data:
@@ -407,9 +407,11 @@ class Satochip(TabbedPanel):
                                 try:
                                     Logger.info(f"typed_data= {typed_data}")
                                     msg_hash= eip712.encoding.encode_typed_data(typed_data).hex()
+                                    #raise Exception("Debug EIP712 build")
+                                    txt+= f"{typed_data}\n\n"
                                     if msg_hash!=hash:
                                         Logger.info(f"inconsistent msg hashes! computed hash: {msg_hash}")
-                                        txt+= "Warning: inconsistent msg hashes! \nYou should reject the request unless you know what you are doing!"
+                                        txt+= "Warning: inconsistent msg hashes! \nYou should reject the request unless you know what you are doing!\n"
                                 except Exception as ex:
                                     # fallback: use domainSeparatorHex & hashStructMessageHex hashes for blind Signing
                                     # This is NOT compliant with walletconnect specifications...
@@ -420,9 +422,9 @@ class Satochip(TabbedPanel):
                                                         bytes.fromhex('01') +
                                                         bytes.fromhex(domainSeparatorHex) +
                                                         bytes.fromhex(hashStructMessageHex)).hex()
-                                    msg_txt= f"WARNING: could not parse typed_data (error: {ex}).\nBlind signing using hash: {hash}"
+                                    txt+= f"WARNING: could not parse typed_data (error: {ex}).\nBlind signing using hash: {hash}\n"
                                     if msg_hash!=hash:
-                                        txt+= "Warning: inconsistent msg hashes! \nYou should reject the request unless you know what you are doing!"
+                                        txt+= "Warning: inconsistent msg hashes! \nYou should reject the request unless you know what you are doing!\n"
                                     Logger.info(f"Blind signing using msg_hash: {msg_hash}")
                             except Exception as ex:
                                 txt= f"Failed to parse typed message with error: {ex}. \nYou should reject the request unless you know what you are doing!"
@@ -511,7 +513,7 @@ class Satochip(TabbedPanel):
                                 txt+="Max fee per gas: "+str(tx_max_fee_per_gas)+"\n"
                                 txt+="Max priority fee per gas: "+str(tx_max_priority_fee_per_gas)+"\n"
                             txt+="Data: "+tx_data+"\n" #todo: parse data
-                            txt+="Hash: "+tx_hash+"\n" #debug
+                            #txt+="Hash: "+tx_hash+"\n" #debug
                             if tx_hash!=hash:
                                 txt+= "\nWarning! inconsistent tx hashes! \nYou should reject the request unless you know what you are doing!"
                             challenge= hash + 32*"CC"

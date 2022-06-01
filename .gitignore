@@ -9,6 +9,7 @@ idna/
 pyaes/
 requests/
 urllib3/
+parsimonious/
 
 # python modules for ethereum
 cytoolz/
@@ -19,10 +20,16 @@ hexbytes/
 rlp/
 tlz/
 toolz/
+py_eth_sig_utils/
+py_ecc/
+eth_abi/
 
 # python module files
 sha3.py
 pbkdf2.py
+six.py
+mypy_extensions.py
+cached_property.py
 *.so
 
 # ethereum chains id list

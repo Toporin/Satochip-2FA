@@ -1,6 +1,10 @@
 #!/bin/bash
 #Install pure python modules in the directory
-python3 -m pip install -r ./requirements.txt -t .
+python3 -m pip install --upgrade -r ./requirements.txt -t .
+
+# remove pycryptodome (Crypto) package as it causes issues with pbkdf2
+rm -rf ./Crypto
+rm -rf ./pycryptodome-*
 
 # clone cryptos module from github
 mkdir tmp
@@ -12,8 +16,9 @@ popd
 popd
 rm -rf ./tmp
 
+# remove chains directory before downloading it again
+rm -rf ./chains
 # clone ethereum-lists/chains module from github
 git clone https://github.com/ethereum-lists/chains.git
-
-# In the chains folder, remove all files & folders except for _data folder:
-find ./chains -mindepth 1 ! -regex '^./chains/_data\(/.*\)?' -delete
+# In the chains folder, remove all files & folders except for _data/chains folder:
+find ./chains -mindepth 1 ! -regex '^./chains/_data/chains\(/.*\)?' -delete

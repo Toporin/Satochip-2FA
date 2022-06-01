@@ -31,14 +31,14 @@ source.exclude_patterns = *.dist-info
 # (str) Application versioning (method 1)
 # v0.1: initial version (32-bit)
 # v0.2: support for segwit, multisig, multiple coin, multiple 2FA, logs, qrcodes, save data, data encryption
-# v0.3: same as v0.2 but for 64-bit 
+# v0.3: same as v0.2 but for 64-bit
 # v0.4-0.5: unreleased
 # v0.6: for 32-bit platforms
-#       + patch bug (crash when blockchain.info api unavailable) 
-#       + allows copy/paste 2FA factor when qr code is not supported (windows/linux) 
+#       + patch bug (crash when blockchain.info api unavailable)
+#       + allows copy/paste 2FA factor when qr code is not supported (windows/linux)
 #       + show amounts in mBtc instead of satoshi (as in electrum)
 # v0.7: same as v0.6 but for 64-bit platforms
-# v0.8: add Bitcoin Cash support 
+# v0.8: add Bitcoin Cash support
 # v0.9: same as v0.8 but for 64-bit platforms
 # v0.10: for 32-bit platforms
 #       + support for Litecoin
@@ -47,23 +47,29 @@ source.exclude_patterns = *.dist-info
 # v0.11: same as v0.10 but for 64-bit platforms
 # v0.12: Patch message signing for Litecoin (and other alts) on 32-bit platforms
 # v0.13: same as v0.12 but for 64-bit platforms
-# v0.14: add support for Ethereum 
+# v0.14: add support for Ethereum
 # v0.15: same as v0.14 but for 64-bit platforms
 # v0.16: add support for SLP tokens
 # v0.17: same as v0.16 but for 64-bit platforms
 # v0.18: add threading for cosigner connexions and possibility to select cosigner server
 # v0.19: same as v0.18 but for 64-bit platforms
-# v0.20: patch bug where config settings are erased when app is updated 
+# v0.20: patch bug where config settings are erased when app is updated
 # v0.21: same as v0.20 but for 64-bit platforms
 # v0.22: add support for Metamask & MyEtherWallet (slightly different request format), update chains repo for EVM-based chains
 # v0.23: same as v0.22 but for 64-bit platforms
-version = 0.23
+# v0.24: add support for Ethereum typed message (EIP-712) and EIP-1559, update chains repo for EVM-based chains (32 & 64-bit platforms)
+version = 0.24
 
 # (str) The Android arch to build for, choices: armeabi-v7a, arm64-v8a, x86
 # 32bit platform (even version number)
 #android.arch = armeabi-v7a
 # 64bit platform (odd version number)
-android.arch = arm64-v8a
+#android.arch = arm64-v8a
+# buildoze v0.13 and higher supports multi arch apk!
+android.archs = arm64-v8a, armeabi-v7a
+
+# (str) The format used to package the app for release mode (aab or apk).
+android.release_artifact = aab
 
 # (str) Application versioning (method 2)
 # version.regex = __version__ = ['"](.*)['"]
@@ -72,8 +78,8 @@ android.arch = arm64-v8a
 # (list) Application requirements
 # comma separated e.g. requirements = sqlite3,kivy
 #requirements = python3, kivy, android, pyjnius
-requirements = python3, kivy, android, plyer, openssl, pysha3        
-	
+requirements = python3, kivy, android, plyer, openssl, pysha3
+
 # (str) Custom source folders for requirements
 # Sets custom source for any requirements with recipes
 # requirements.source.kivy = ../../kivy
@@ -127,7 +133,7 @@ android.permissions = INTERNET, CAMERA
 
 # (int) Target Android API, should be as high as possible.
 #TODO: upgrade to 29 - https://developer.android.com/distribute/best-practices/develop/target-sdk.html
-android.api = 29 
+android.api = 30
 
 # (int) Minimum API your APK will support.
 android.minapi = 21
@@ -245,7 +251,7 @@ android.manifest.launch_mode = standard
 
 # (str) The Android arch to build for, choices: armeabi-v7a, arm64-v8a, x86
 #android.arch = armeabi-v7a
-#android.arch = arm64-v8a 
+#android.arch = arm64-v8a
 
 #
 # Python for android (p4a) specific
